@@ -611,7 +611,7 @@ void digitalWrite(uint32_t ulPin, uint32_t ulVal) {
             //_hwio_pwm_analogWrite_set_val(HWIO_PWM_FAN1, ulVal ? _pwm_analogWrite_max[HWIO_PWM_FAN1] : 0);
 #ifdef NEW_FANCTL
             if (hwio_fan_control_enabled)
-                fanctl_set_pwm(1, ulVal ? (100 * 50 / 255) : 0);
+                fanctl_set_pwm(1, ulVal ? 255 : 0);
 #else  //NEW_FANCTL
             _hwio_pwm_analogWrite_set_val(HWIO_PWM_FAN1, ulVal ? 100 : 0);
 #endif //NEW_FANCTL
@@ -619,7 +619,7 @@ void digitalWrite(uint32_t ulPin, uint32_t ulVal) {
         case MARLIN_PIN(FAN):
 #ifdef NEW_FANCTL
             if (hwio_fan_control_enabled)
-                fanctl_set_pwm(0, ulVal ? 50 : 0);
+                fanctl_set_pwm(0, ulVal ? 255 : 0);
 #else  //NEW_FANCTL
             _hwio_pwm_analogWrite_set_val(HWIO_PWM_FAN, ulVal ? _pwm_analogWrite_max[HWIO_PWM_FAN] : 0);
 #endif //NEW_FANCTL
@@ -721,7 +721,7 @@ void analogWrite(uint32_t ulPin, uint32_t ulValue) {
             //hwio_fan_set_pwm(_FAN, ulValue);
 #ifdef NEW_FANCTL
             if (hwio_fan_control_enabled)
-                fanctl_set_pwm(0, ulValue * 50 / 255);
+                fanctl_set_pwm(0, ulValue );
 #else  //NEW_FANCTL
             _hwio_pwm_analogWrite_set_val(HWIO_PWM_FAN, ulValue);
 #endif //NEW_FANCTL

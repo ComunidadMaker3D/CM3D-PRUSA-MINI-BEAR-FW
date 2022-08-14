@@ -1358,22 +1358,22 @@
     #define PAUSE_PARK_RETRACT_LENGTH 2 // (mm) Initial retract.
 // This short retract is done immediately, before parking the nozzle.
     #define FILAMENT_CHANGE_UNLOAD_FEEDRATE 80 // (mm/s) Unload filament feedrate. This can be pretty fast.
-    #define FILAMENT_CHANGE_UNLOAD_ACCEL 1250 // (mm/s^2) Lower acceleration may allow a faster feedrate.
-    #define FILAMENT_CHANGE_UNLOAD_LENGTH 420 // (mm) The length of filament for a complete unload.
+    #define FILAMENT_CHANGE_UNLOAD_ACCEL 800 // (mm/s^2) Lower acceleration may allow a faster feedrate.
+    #define FILAMENT_CHANGE_UNLOAD_LENGTH 42 // (mm) The length of filament for a complete unload.
 //   For Bowden, the full length of the tube and nozzle.
 //   For direct drive, the full length of the nozzle.
 //   Set to 0 for manual unloading.
     #define FILAMENT_CHANGE_SLOW_LOAD_FEEDRATE 10 // (mm/s) Slow move when starting load.
     #define FILAMENT_CHANGE_SLOW_LOAD_LENGTH 40 // (mm) Slow length, to allow time to insert material.
 // 0 to disable start loading and skip to fast load only
-    #define FILAMENT_CHANGE_FAST_LOAD_FEEDRATE 80 // (mm/s) Load filament feedrate. This can be pretty fast.
-    #define FILAMENT_CHANGE_FAST_LOAD_ACCEL 625 // (mm/s^2) Lower acceleration may allow a faster feedrate.
-    #define FILAMENT_CHANGE_FAST_LOAD_LENGTH 320 // (mm) Load length of filament, from extruder gear to nozzle.
+    #define FILAMENT_CHANGE_FAST_LOAD_FEEDRATE 40 // (mm/s) Load filament feedrate. This can be pretty fast.
+    #define FILAMENT_CHANGE_FAST_LOAD_ACCEL 300 // (mm/s^2) Lower acceleration may allow a faster feedrate.
+    #define FILAMENT_CHANGE_FAST_LOAD_LENGTH 32 // (mm) Load length of filament, from extruder gear to nozzle.
 //   For Bowden, the full length of the tube and nozzle.
 //   For direct drive, the full length of the nozzle.
 //#define ADVANCED_PAUSE_CONTINUOUS_PURGE       // Purge continuously up to the purge length until interrupted.
     #define ADVANCED_PAUSE_PURGE_FEEDRATE 3 // (mm/s) Extrude feedrate (after loading). Should be slower than load feedrate.
-    #define ADVANCED_PAUSE_PURGE_LENGTH 50 // (mm) Length to extrude after loading.
+    #define ADVANCED_PAUSE_PURGE_LENGTH 30 // (mm) Length to extrude after loading.
 //   Set to 0 for manual extrusion.
 //   Filament can be extruded repeatedly from the Filament Change menu
 //   until extrusion is consistent, and to purge old filament.
@@ -1384,8 +1384,8 @@
     #define FILAMENT_UNLOAD_DELAY 5000 // (ms) Delay for the filament to cool after retract.
     #define FILAMENT_UNLOAD_PURGE_LENGTH 16 // (mm) An unretract is done, then this length is purged.
     #define FILAMENT_UNLOAD_PURGE_FEEDRATE 66 // (mm/s)
-    #define FILAMENT_UNLOAD_PHASE1_LENGHT 35 // (mm)fast phase
-    #define FILAMENT_UNLOAD_PHASE2_LENGHT 45 // (mm)slow phase
+    #define FILAMENT_UNLOAD_PHASE1_LENGHT 20 // (mm)fast phase
+    #define FILAMENT_UNLOAD_PHASE2_LENGHT 60 // (mm)slow phase
 
     #define PAUSE_PARK_NOZZLE_TIMEOUT 45 // (seconds) Time limit before the nozzle is turned off for safety.
     #define FILAMENT_CHANGE_ALERT_BEEPS 10 // Number of alert beeps to play when a response is needed.

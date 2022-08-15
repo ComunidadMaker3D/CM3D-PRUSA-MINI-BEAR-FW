@@ -71,15 +71,15 @@ enum {
 
 //FANCTL0 - printing fan
 //static const uint8_t FANCTL0_PWM_MIN = 15;
-static const uint8_t FANCTL0_PWM_MIN = 0;
-static const uint8_t FANCTL0_PWM_MAX = 255;
-static const uint16_t FANCTL0_RPM_MIN = 8000;
-static const uint16_t FANCTL0_RPM_MAX = 10000;
+static const uint8_t FANCTL0_PWM_MIN = 10;
+static const uint8_t FANCTL0_PWM_MAX = 50;
+static const uint16_t FANCTL0_RPM_MIN = 500;
+static const uint16_t FANCTL0_RPM_MAX = 5000;
 static const uint8_t FANCTL0_PWM_THR = 20;
     #define FANCTL0_TRACE
 //FANCTL1 - heatbreak fan
 //static const uint8_t FANCTL1_PWM_MIN = 12;
-static const uint8_t FANCTL1_PWM_MIN = 0;
+static const uint8_t FANCTL1_PWM_MIN = 10;
 static const uint8_t FANCTL1_PWM_MAX = 255;
 static const uint16_t FANCTL1_RPM_MIN = 1000;
 static const uint16_t FANCTL1_RPM_MAX = 10000;

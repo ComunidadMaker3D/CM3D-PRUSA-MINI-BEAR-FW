@@ -9,7 +9,7 @@
 //!@}
 
 #if defined(PRINTER_TYPE) && PRINTER_TYPE == PRINTER_PRUSA_MINI
-    #define PRINTER_MODEL "MINI"
+    #define PRINTER_MODEL "MK3S"
 #else
     #error "Unknown printer type"
 #endif

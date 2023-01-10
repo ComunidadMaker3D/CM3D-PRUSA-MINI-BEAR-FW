@@ -1,4 +1,6 @@
-//display_helper.cpp
+/**
+ * @file display_helper.cpp
+ */
 
 #include <algorithm>
 
@@ -11,40 +13,50 @@
 #include "../lang/unaccent.hpp"
 #include "../common/str_utils.hpp"
 #include "ScreenHandler.hpp"
+#include <math.h>
 #include "guitypes.hpp"
 #include "cmath_ext.h"
 
-//#define UNACCENT
+// just to test the FW with fonts - will be refactored
+struct FCIndex {
+    uint16_t unc; /// utf8 character value (stripped of prefixes)
+    uint8_t charX, charY;
+};
 
-#ifdef UNACCENT
-std::pair<const char *, uint8_t> ConvertUnicharToFontCharIndex(unichar c) {
-    // for now we have a translation table and in the future we'll have letters with diacritics too (i.e. more font bitmaps)
-    const auto &a = UnaccentTable::Utf8RemoveAccents(c);
-    return std::make_pair(a.str, a.size); // we are returning some number of characters to replace the input utf8 character
-}
+static constexpr const FCIndex fontCharIndices[] =
+#include "fnt-indices.ipp"
+    static constexpr const uint32_t fontCharIndicesNumItems = sizeof(fontCharIndices) / sizeof(FCIndex);
 
-void draw_char_and_increment(const font_t *pf, color_t clr_bg, color_t clr_fg, unichar c, int &ref_x, int y, int w) {
-    // FIXME no check for enough space to draw char/chars
+void get_char_position_in_font(unichar c, const font_t *pf, uint8_t *charX, uint8_t *charY) {
+    static_assert(sizeof(FCIndex) == 4, "font char indices size mismatch");
+    // convert unichar into font index - all fonts have the same layout, thus this can be computed here
+    // ... and also because doing it in C++ is much easier than in plain C
+    *charX = 15;
+    *charY = 1;
+
+    if (c < uint8_t(pf->asc_min)) { // this really happens with non-utf8 characters on filesystems
+        c = '?';                    // substitute with a '?' or any other suitable character, which is in the range of the fonts
+    }
+    // here is intentionally no else
     if (c < 128) {
-        display::DrawChar(point_ui16(ref_x, y), c, pf, clr_bg, clr_fg);
-        ref_x += w;
+        // normal ASCII character
+        *charX = (c - pf->asc_min) % 16;
+        *charY = (c - pf->asc_min) / 16;
     } else {
-        auto convertedChar = ConvertUnicharToFontCharIndex(c);
-        for (size_t i = 0; i < convertedChar.second; ++i) {
-            display::DrawChar(point_ui16(ref_x, y), convertedChar.first[i], pf, clr_bg, clr_fg);
-            ref_x += w; // this will screw up character counting for DE language @@TODO
+        // extended utf8 character - must search in the fontCharIndices map
+        const FCIndex *i = std::lower_bound(fontCharIndices, fontCharIndices + fontCharIndicesNumItems, c, [](const FCIndex &i, unichar c) {
+            return i.unc < c;
+        });
+        if (i == fontCharIndices + fontCharIndicesNumItems || i->unc != c) {
+            // character not found
+            *charX = 15; // put '?' as a replacement
+            *charY = 1;
+        } else {
+            *charX = i->charX;
+            *charY = i->charY;
         }
     }
 }
-
-#else // !UNACCENT
-
-void draw_char_and_increment(const font_t *pf, color_t clr_bg, color_t clr_fg, unichar c, int &ref_x, int y, int w) {
-    display::DrawChar(point_ui16(ref_x, y), c, pf, clr_bg, clr_fg);
-    ref_x += w;
-}
-
-#endif
 
 /// Fill space from [@top, @left] corner to the end of @rc with height @h
 /// If @h is too high, it will be cropped so nothing is drawn outside of the @rc but
@@ -73,47 +85,50 @@ void fill_between_rectangles(const Rect16 *r_out, const Rect16 *r_in, color_t co
 }
 
 /// Draws a text into the specified rectangle @rc
-/// If a character does not fit into the rectangle the drawing is stopped
+/// It stores characters in buffer and then draws them all at once. Characters that doesn't fit within the rectangle are ignored.
 /// \param clr_bg background color
 /// \param clr_fg font/foreground color
 /// \returns size of drawn area
 /// Draws unused space of @rc with @clr_bg
 template <class T>
 size_ui16_t render_line(T &textWrapper, Rect16 rc, string_view_utf8 &str, const font_t *pf, color_t clr_bg, color_t clr_fg) {
-    int x = rc.Left();
-    int y = rc.Top();
-    size_t drawn_chars = 0;
+    if (!pf || pf->w == 0 || pf->h == 0 || rc.Width() < pf->w || rc.Height() < pf->h)
+        return size_ui16_t { 0, 0 };
 
-    const int w = pf->w; //char width
+    point_ui16_t pt = point_ui16(rc.Left(), rc.Top());
+    const uint16_t fnt_w = pf->w; // char width
+    const uint16_t fnt_h = pf->h; // char height
 
-    // prepare for stream processing
-    unichar c = 0;
+    uint16_t buff_char_capacity = display::BufferPixelSize() / (fnt_w * fnt_h);
+    uint16_t line_char_cnt = rc.Width() / fnt_w; // character count - rects are calculated through font measurings (newlines are ignored)
+    uint16_t chars_cnt = 0;                      // character count of currently drawn loop iteration
+    uint16_t chars_left = line_char_cnt;         // characters left to draw
 
-    while (true) {
-        c = textWrapper.character(str);
-
-        if (c == 0)
-            break;
-
-        /// Break line char or drawable char won't fit into this line any more
-        if (c == '\n') {
-            break; /// end of single line => no more text to print
+    for (uint16_t i = 0; i * buff_char_capacity < line_char_cnt; i++) {
+        chars_cnt = chars_left > buff_char_capacity ? buff_char_capacity : chars_left;
+        // Storing text in the display buffer
+        // It has to know how many chars will be stored to correctly compute display buffer offsets
+        for (uint16_t j = 0; j < chars_cnt; j++) {
+            unichar c = textWrapper.character(str);
+            if (c == '\n') {
+                j--; // j have to be unaffected by new line character
+            } else {
+                display::StoreCharInBuffer(chars_cnt, j, c, pf, clr_bg, clr_fg);
+            }
         }
-
-        if (x + w > rc.EndPoint().x) {
-            break;
+        // Drawing from the buffer
+        if (chars_cnt > 0) {
+            chars_left -= chars_cnt;
+            display::DrawFromBuffer(pt, chars_cnt * fnt_w, fnt_h);
+            pt.x += chars_cnt * fnt_w;
         }
-
-        /// draw part
-        draw_char_and_increment(pf, clr_bg, clr_fg, c, x, y, w);
-        ++drawn_chars;
     }
 
-    return size_ui16_t { uint16_t(drawn_chars * w), rc.Height() };
+    return size_ui16(fnt_w * line_char_cnt, fnt_h);
 }
 
 /// Draws a text into the specified rectangle @rc
-/// If a character does not fit into the rectangle the drawing is stopped
+/// If a character does not fit into the rectangle it will be ignored
 /// \param clr_bg background color
 /// \param clr_fg font/foreground color
 /// \returns size of drawn area
@@ -166,27 +181,27 @@ static RectTextLayout multiline_loop(uint8_t MaxColsInRect, uint8_t MaxRowsInRec
 
 /// Draws text into the specified rectangle with proper alignment (@flags)
 /// This cannot horizontally align a text spread over more lines (multiline text).
-/// \param flags Use ALIGN constants from guitypes.h. Use RENDER_FLG_WORDB for line wrapping
-void render_text_align(Rect16 rc, string_view_utf8 text, const font_t *font, color_t clr_bg, color_t clr_fg, padding_ui8_t padding, uint16_t flags) {
+void render_text_align(Rect16 rc, string_view_utf8 text, const font_t *font, color_t clr_bg, color_t clr_fg, padding_ui8_t padding, text_flags flags, bool fill_rect) {
     Rect16 rc_pad = rc;
     rc_pad.CutPadding(padding);
 
     /// 1st pass reading the string_view_utf8 - font_meas_text also computes the number of utf8 characters (i.e. individual bitmaps) in the input string
     uint16_t strlen_text = 0;
-    const point_ui16_t txt_size = font_meas_text(font, &text, &strlen_text);
-    if (txt_size.x == 0 || txt_size.y == 0) {
+    const size_ui16_t txt_size = font_meas_text(font, &text, &strlen_text);
+    if (txt_size.w == 0 || txt_size.h == 0) {
         /// empty text => draw background rectangle only
-        display::FillRect(rc, clr_bg);
+        if (fill_rect)
+            display::FillRect(rc, clr_bg);
         return;
     }
 
     /// single line, can modify rc pad
     if (font->h * 2 > rc_pad.Height()                              /// 2 lines would not fit
-        || (txt_size.y == font->h && txt_size.x <= rc_pad.Width()) /// text fits into a single line completely
-        || !(flags & RENDER_FLG_WORDB)) {                          /// wrapping turned off
+        || (txt_size.h == font->h && txt_size.w <= rc_pad.Width()) /// text fits into a single line completely
+        || !flags.IsMultiline()) {                                 /// wrapping turned off
 
-        Rect16 rc_txt = Rect16(0, 0, txt_size.x, txt_size.y); /// set size
-        rc_txt.Align(rc_pad, flags & ALIGN_MASK);             /// position the rectangle
+        Rect16 rc_txt = Rect16(0, 0, txt_size.w, txt_size.h); /// set size
+        rc_txt.Align(rc_pad, flags.align);                    /// position the rectangle
         rc_pad = rc_txt.Intersection(rc_pad);                 ///  set padding rect to new value, crop the rectangle if the text is too long
 
         /// 2nd pass reading the string_view_utf8 - draw the text
@@ -201,7 +216,7 @@ void render_text_align(Rect16 rc, string_view_utf8 text, const font_t *font, col
         RectTextLayout layout = multiline_loop(MaxColsInRect, MaxRowsInRect, text);
 
         Rect16 rc_txt = Rect16(0, 0, rc_pad.Width(), font->h * layout.GetLineCount()); /// set size
-        rc_txt.Align(rc_pad, flags & ALIGN_MASK);                                      /// position the rectangle
+        rc_txt.Align(rc_pad, flags.align);                                             /// position the rectangle
         rc_pad = rc_txt.Intersection(rc_pad);                                          ///  set padding rect to new value, crop the rectangle if the text is too long
 
         Rect16 line_to_align = rc_pad;
@@ -213,7 +228,7 @@ void render_text_align(Rect16 rc, string_view_utf8 text, const font_t *font, col
         for (size_t i = 0; i < layout.GetLineCount(); ++i) {
             const size_t line_char_cnt = layout.LineCharacters(i);
             Rect16 line_rect(0, 0, font->w * line_char_cnt, font->h);
-            line_rect.Align(line_to_align, flags & ALIGN_MASK);
+            line_rect.Align(line_to_align, flags.align);
 
             //in front of line
             Rect16 front = line_to_align.LeftSubrect(line_rect);
@@ -233,66 +248,25 @@ void render_text_align(Rect16 rc, string_view_utf8 text, const font_t *font, col
     }
 
     /// fill borders (padding)
-    fill_between_rectangles(&rc, &rc_pad, clr_bg);
-}
-
-void render_icon_align(Rect16 rc, uint16_t id_res, color_t clr0, uint16_t flags) {
-    color_t opt_clr;
-    switch ((flags >> 8) & (ROPFN_SWAPBW | ROPFN_DISABLE)) {
-    case ROPFN_SWAPBW | ROPFN_DISABLE:
-        opt_clr = GuiDefaults::ColorDisabled;
-        break;
-    case ROPFN_SWAPBW:
-        opt_clr = clr0 ^ 0xffffffff;
-        break;
-    case ROPFN_DISABLE:
-        opt_clr = clr0;
-        break;
-    default:
-        opt_clr = clr0;
-        break;
+    if (fill_rect) {
+        fill_between_rectangles(&rc, &rc_pad, clr_bg);
     }
-    point_ui16_t wh_ico = icon_meas(resource_ptr(id_res));
-    if (wh_ico.x && wh_ico.y) {
-        Rect16 rc_ico = Rect16(0, 0, wh_ico.x, wh_ico.y);
-        rc_ico.Align(rc, flags & ALIGN_MASK);
-        rc_ico = rc_ico.Intersection(rc);
-        fill_between_rectangles(&rc, &rc_ico, opt_clr);
-        display::DrawIcon(point_ui16(rc_ico.Left(), rc_ico.Top()), id_res, clr0, (flags >> 8) & 0x0f);
-    } else
-        display::FillRect(rc, opt_clr);
 }
 
-//todo rewrite
-void render_unswapable_icon_align(Rect16 rc, uint16_t id_res, color_t clr0, uint16_t flags) {
-    color_t opt_clr;
-    switch ((flags >> 8) & (ROPFN_SWAPBW | ROPFN_DISABLE)) {
-    case ROPFN_SWAPBW | ROPFN_DISABLE:
-        opt_clr = GuiDefaults::ColorDisabled;
-        break;
-    case ROPFN_SWAPBW:
-        opt_clr = clr0 ^ 0xffffffff;
-        break;
-    case ROPFN_DISABLE:
-        opt_clr = clr0;
-        break;
-    default:
-        opt_clr = clr0;
-        break;
+void render_icon_align(Rect16 rc, const png::Resource *res, color_t clr_back, icon_flags flags) {
+
+    if (res) {
+        point_ui16_t wh_ico = { res->w, res->h };
+        Rect16 rc_ico = Rect16(0, 0, wh_ico.x, wh_ico.y);
+        rc_ico.Align(rc, flags.align);
+        rc_ico = rc_ico.Intersection(rc);
+        display::DrawPng(point_ui16(rc_ico.Left(), rc_ico.Top()), *res, clr_back, flags.raster_flags);
+    } else {
+        display::FillRect(rc, clr_back);
     }
-    flags &= ~(ROPFN_SWAPBW << 8);
-    point_ui16_t wh_ico = icon_meas(resource_ptr(id_res));
-    if (wh_ico.x && wh_ico.y) {
-        Rect16 rc_ico = Rect16(0, 0, wh_ico.x, wh_ico.y);
-        rc_ico.Align(rc, flags & ALIGN_MASK);
-        rc_ico = rc_ico.Intersection(rc);
-        fill_between_rectangles(&rc, &rc_ico, opt_clr);
-        display::DrawIcon(point_ui16(rc_ico.Left(), rc_ico.Top()), id_res, clr0, (flags >> 8) & 0x0f);
-    } else
-        display::FillRect(rc, opt_clr);
 }
 
-point_ui16_t font_meas_text(const font_t *pf, string_view_utf8 *str, uint16_t *numOfUTF8Chars) {
+size_ui16_t font_meas_text(const font_t *pf, string_view_utf8 *str, uint16_t *numOfUTF8Chars) {
     int x = 0;
     int y = 0;
     int w = 0;
@@ -313,5 +287,9 @@ point_ui16_t font_meas_text(const font_t *pf, string_view_utf8 *str, uint16_t *n
         h = y + char_h;
     }
     str->rewind();
-    return point_ui16((uint16_t)std::max(x, w), (uint16_t)h);
+    return { uint16_t(std::max(x, w)), uint16_t(h) };
+}
+
+void render_rect(Rect16 rc, color_t clr) {
+    display::FillRect(rc, clr);
 }

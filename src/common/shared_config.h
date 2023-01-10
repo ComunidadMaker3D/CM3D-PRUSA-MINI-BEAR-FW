@@ -8,6 +8,7 @@ static const uint32_t BOOTLOADER_VERSION_ADDRESS = 0x0801FFFA;
 
 // EEPROM firmware update flag
 static const uint8_t FW_UPDATE_ENABLE = 0xAA;
+static const uint8_t FW_UPDATE_OLDER = 0x55;
 static const uint8_t FW_UPDATE_DISABLE = 0x00;
 
 // pin PA13 state
@@ -16,8 +17,8 @@ static const uint8_t APPENDIX_FLAG_MASK = 0x01;
 typedef struct {
     uint8_t fw_update_flag;
     uint8_t model_specific_flags; // ~ "reserved1" originally
-    uint8_t reserved2;
-    uint8_t reserved3;
+    uint8_t fw_signature;
+    uint8_t bootloader_valid;
     uint8_t reserved4;
     uint8_t reserved5;
     uint8_t reserved6;

@@ -1,15 +1,11 @@
 #include <algorithm>
 
-#include "../../lib/Marlin/Marlin/src/inc/MarlinConfig.h"
-#include "../../lib/Marlin/Marlin/src/feature/host_actions.h"
-#include "../../lib/Marlin/Marlin/src/feature/safety_timer.h"
-#include "../../lib/Marlin/Marlin/src/gcode/gcode.h"
-#include "../../lib/Marlin/Marlin/src/module/motion.h"
 #include "../../lib/Marlin/Marlin/src/module/temperature.h"
-#include "../../lib/Marlin/Marlin/src/Marlin.h"
+#include "../../lib/Marlin/Marlin/src/gcode/lcd/M73_PE.h"
+#include "../../lib/Marlin/Marlin/src/gcode/gcode.h"
 #include "marlin_server.hpp"
-#include "client_fsm_types.h"
 #include "PrusaGcodeSuite.hpp"
+#include "filament.hpp"
 #include "G26.hpp"
 #include "cmath_ext.h"
 
@@ -181,7 +177,10 @@ static const constexpr float snake2[] = {
     10,
 };
 
-bool FirstLayer::isPrinting_ = false;
+// static variables
+uint32_t FirstLayerProgressLock::isPrinting_ = 0;
+uint32_t FirstLayer::finished_n_times = 0;
+uint32_t FirstLayer::started_n_times = 0;
 
 void FirstLayer::finish_printing() {
     current_line = 1;
@@ -328,9 +327,6 @@ void FirstLayer::print_shape_2() {
     //TODO setprecent? ////M73 P96 R0
     go_to_destination(NAN, NAN, 30.2f, NAN, 720.f); // G1 Z30.2 F720 ; Move print head further up
     planner.synchronize();                          // G4 ; wait .. finish moves == M400
-    thermalManager.setTargetHotend(0, 0);           // M104 S0 ; turn off temperature
-    thermalManager.setTargetBed(0);                 // M140 S0 ; turn off heatbed
-    thermalManager.set_fan_speed(0, 0);             //M107 ; turn off fan
 
     //no need lro reset linear advance, was not set // M900 K0 ; reset LA
     planner.finish_and_disable(); // M84 ; disable motors
@@ -338,10 +334,31 @@ void FirstLayer::print_shape_2() {
     finish_printing();
 }
 
+/**
+ * @brief gcode to draw a first layer on bed
+ * does not take any parameters
+ * meant to be called from selftest
+ */
 void PrusaGcodeSuite::G26() {
-    if (all_axes_known()) { /// checks if axes are calibrated (homed) before
-        FirstLayer fl;
-        //fl.print_shape_1();
-        fl.print_shape_2();
+    // is filament selected
+    if (Filaments::Current().response == Response::Cooldown) {
+        return;
     }
+
+    FirstLayer fl;
+
+    const int temp_nozzle = Filaments::Current().nozzle;
+
+    // nozzle temperature print
+    thermalManager.setTargetHotend(temp_nozzle, 0);
+    marlin_server_set_temp_to_display(temp_nozzle);
+    thermalManager.wait_for_hotend(0, false);
+
+    //fl.print_shape_1();
+    fl.print_shape_2();
+
+    thermalManager.setTargetHotend(0, 0);
+    marlin_server_set_temp_to_display(0);
+
+    thermalManager.setTargetBed(0);
 }

@@ -1,12 +1,8 @@
 # first, let's create a symbolic target for all tests
 add_custom_target(tests)
 
-set(CMAKE_C_FLAGS -m32)
-set(CMAKE_CXX_FLAGS -m32)
-
 # include catch_discover_tests function from Catch2
 include(${Catch2_SOURCE_DIR}/contrib/Catch.cmake)
-
 add_library(catch_main ${CMAKE_CURRENT_SOURCE_DIR}/test_main.cpp)
 target_link_libraries(catch_main Catch2::Catch2)
 
@@ -24,3 +20,7 @@ add_catch_test(system_tests)
 add_subdirectory(gui)
 add_subdirectory(common)
 add_subdirectory(lang)
+add_subdirectory(lib)
+add_subdirectory(logging)
+add_subdirectory(connect)
+add_subdirectory(transfers)

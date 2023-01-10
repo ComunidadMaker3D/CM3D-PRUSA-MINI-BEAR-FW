@@ -1,4 +1,5 @@
 #include <array>
+#include <cassert>
 
 #include "config.h"
 #include "otp.h"
@@ -7,19 +8,21 @@
 #include "support_utils.h"
 #include "display.h"
 #include "string.h"
-#include "../../gui/wizard/selftest.hpp"
 #include "version.h"
 #include "language_eeprom.hpp"
-#include "sha256.h"
+#include "mbedtls/sha256.h"
 #include "crc32.h"
 #include "stm32f4xx_hal_gpio.h"
 
 #include "qrcodegen.h"
 #include "support_utils_lib.hpp"
 
-static constexpr char INFO_URL_LONG_PREFIX[] = "HTTPS://HELP.PRUSA3D.COM";
-static constexpr char ERROR_URL_LONG_PREFIX[] = "HTTPS://HELP.PRUSA3D.COM";
-static constexpr char ERROR_URL_SHORT_PREFIX[] = "help.prusa3d.com";
+#include <option/bootloader.h>
+
+static constexpr char INFO_URL_LONG_PREFIX[] = "HTTPS://PRUSA.IO";
+static constexpr char ERROR_URL_LONG_PREFIX[] = "HTTPS://PRUSA.IO";
+static constexpr char ERROR_URL_SHORT_PREFIX[] = "prusa.io";
+static constexpr char SERIAL_PREFIX[] = "CZPX";
 
 /// FIXME same code in support_utils_lib
 /// but linker cannot find it
@@ -32,48 +35,55 @@ void append_crc(char *str, const uint32_t str_size) {
     snprintf(eofstr(str), str_size - strlen(str), "/%08lX", crc);
 }
 
-/// \returns 40 bit encoded to 8 chars (32 symbol alphabet: 0-9,A-V)
-/// Make sure there's a space for 9 chars
-void printerCode(char *str) {
-    constexpr uint8_t SNSize = 4 + OTP_SERIAL_NUMBER_SIZE - 1; // + fixed header, - trailing 0
+void printerHash(char *str, size_t size, bool state_prefix) {
+    const size_t prefix_len = strlen(SERIAL_PREFIX);
+    constexpr uint8_t SNSize = prefix_len + OTP_SERIAL_NUMBER_SIZE - 1; // + fixed header, - trailing 0
     constexpr uint8_t bufferSize = OTP_STM32_UUID_SIZE + OTP_MAC_ADDRESS_SIZE + SNSize;
     uint8_t toHash[bufferSize];
     /// CPU ID
     memcpy(toHash, (char *)OTP_STM32_UUID_ADDR, OTP_STM32_UUID_SIZE);
-    //snprintf((char *)toHash, buffer, "/%08lX%08lX%08lX", *(uint32_t *)(OTP_STM32_UUID_ADDR), *(uint32_t *)(OTP_STM32_UUID_ADDR + sizeof(uint32_t)), *(uint32_t *)(OTP_STM32_UUID_ADDR + 2 * sizeof(uint32_t)));
     /// MAC
     memcpy(&toHash[OTP_STM32_UUID_SIZE], (char *)OTP_MAC_ADDRESS_ADDR, OTP_MAC_ADDRESS_SIZE);
     /// SN
-    memcpy(&toHash[OTP_STM32_UUID_SIZE + OTP_MAC_ADDRESS_SIZE], (char *)OTP_SERIAL_NUMBER_ADDR, SNSize);
+    memcpy(&toHash[OTP_STM32_UUID_SIZE + OTP_MAC_ADDRESS_SIZE], SERIAL_PREFIX, prefix_len);
+    memcpy(&toHash[OTP_STM32_UUID_SIZE + OTP_MAC_ADDRESS_SIZE + prefix_len], (char *)OTP_SERIAL_NUMBER_ADDR, SNSize - prefix_len);
 
     uint32_t hash[8] = { 0, 0, 0, 0, 0, 0, 0, 0 }; /// 256 bits
     /// get hash;
-    mbedtls_sha256_ret_256(toHash, sizeof(toHash), (unsigned char *)hash);
+    mbedtls_sha256_ret(toHash, sizeof(toHash), (unsigned char *)hash, false);
 
-    /// shift hash by 2 bits
-    hash[7] >>= 2;
-    for (int i = 6; i >= 0; --i)
-        rShift2Bits(hash[i], hash[i + 1]);
+    if (state_prefix) {
+        /// shift hash by 2 bits
+        hash[7] >>= 2;
+        for (int i = 6; i >= 0; --i)
+            rShift2Bits(hash[i], hash[i + 1]);
 
-    /// convert number to 38 bits (32 symbol alphabet)
-    for (uint8_t i = 0; i < 8; ++i) {
+        /// set signature state
+        if (signature_exist()) {
+            setBit((uint8_t *)hash, 7);
+            // setBit(str[0], 7);
+        }
+
+        /// appendix state
+        if (appendix_exist()) {
+            setBit((uint8_t *)hash, 6);
+            //setBit(str[0], 6);
+        }
+    }
+
+    /// convert number by 5-bit chunks (32 symbol alphabet)
+    assert(sizeof(hash) * 8 >= size * 5);
+    for (uint8_t i = 0; i < size; ++i) {
         str[i] = to32((uint8_t *)hash, i * 5);
     }
+}
 
-    /// set first 2 bits (sign, appendix)
-    /// TODO FW sign
-    if (0) {
-        setBit((uint8_t *)hash, 7);
-        // setBit(str[0], 7);
-    }
+/// \returns 40 bit encoded to 8 chars (32 symbol alphabet: 0-9,A-V)
+/// Make sure there's a space for 9 chars
+void printerCode(char *str) {
+    printerHash(str, PRINTER_CODE_SIZE, true);
 
-    /// appendix state
-    if (appendix_exist()) {
-        setBit((uint8_t *)hash, 6);
-        //setBit(str[0], 6);
-    }
-
-    str[8] = '\0';
+    str[PRINTER_CODE_SIZE] = '\0';
 }
 
 /// Adds "/en" or other language abbreviation
@@ -95,7 +105,7 @@ void error_url_long(char *str, const uint32_t str_size, const int error_code) {
     /// fixed prefix
     strlcpy(str, ERROR_URL_LONG_PREFIX, str_size);
 
-    addLanguage(str, str_size);
+    // Website prusa.io doesn't require language specification
 
     /// error code
     snprintf(eofstr(str), str_size - strlen(str), "/%d", error_code);
@@ -106,7 +116,7 @@ void error_url_long(char *str, const uint32_t str_size, const int error_code) {
         printerCode(eofstr(str));
 
     /// FW version
-    snprintf(eofstr(str), str_size - strlen(str), "/%d", variant_get_ui16(eeprom_get_var(EEVAR_FW_VERSION)));
+    snprintf(eofstr(str), str_size - strlen(str), "/%d", eeprom_get_ui16(EEVAR_FW_VERSION));
 
     //snprintf(eofstr(str), str_size - strlen(str), "/%08lX%08lX%08lX", *(uint32_t *)(OTP_STM32_UUID_ADDR), *(uint32_t *)(OTP_STM32_UUID_ADDR + sizeof(uint32_t)), *(uint32_t *)(OTP_STM32_UUID_ADDR + 2 * sizeof(uint32_t)));
     //snprintf(eofstr(str), str_size - strlen(str), "/%s", ((ram_data_exchange.model_specific_flags && APPENDIX_FLAG_MASK) ? "U" : "L"));
@@ -117,76 +127,49 @@ void error_url_short(char *str, const uint32_t str_size, const int error_code) {
     /// help....com/
     strlcpy(str, ERROR_URL_SHORT_PREFIX, str_size);
 
-    addLanguage(str, str_size);
+    // Website prusa.io doesn't require language specification
 
     /// /12201
     snprintf(eofstr(str), str_size - strlen(str), "/%d", error_code);
 }
 
-void create_path_info_4service(char *str, const uint32_t str_size) {
-#if 0
-
-    strlcpy(str, INFO_URL_LONG_PREFIX, str_size);
-    // PrinterType
-    snprintf(eofstr(str), str_size - strlen(str), "%d/", PRINTER_TYPE);
-    // UniqueID
-    block2hex(str, str_size, (uint8_t *)OTP_STM32_UUID_ADDR, OTP_STM32_UUID_SIZE);
-    strlcat(str, "/", str_size);
-    // AppendixStatus
-    snprintf(eofstr(str), str_size - strlen(str), "%s/", ((ram_data_exchange.model_specific_flags && APPENDIX_FLAG_MASK) ? "U" : "L"));
-    // SerialNumber
-    block2hex(str, str_size, (uint8_t *)OTP_SERIAL_NUMBER_ADDR, OTP_SERIAL_NUMBER_SIZE - 1); // "-1" ~ without "\x00"
-    strlcat(str, "/", str_size);
-    // BootloaderVersion
-    snprintf(eofstr(str), str_size - strlen(str), "%02X%02X%02X/", boot_version.major, boot_version.minor, boot_version.patch);
-    // MacAddress
-    block2hex(str, str_size, (uint8_t *)OTP_MAC_ADDRESS_ADDR, OTP_MAC_ADDRESS_SIZE);
-    strlcat(str, "/", str_size);
-    // BoardVersion
-    block2hex(str, str_size, (uint8_t *)OTP_BOARD_REVISION_ADDR, OTP_BOARD_REVISION_SIZE);
-    strlcat(str, "/", str_size);
-    // TimeStamp
-    block2hex(str, str_size, (uint8_t *)OTP_BOARD_TIME_STAMP_ADDR, OTP_BOARD_TIME_STAMP_SIZE);
-    strlcat(str, "/", str_size);
-    // FWversion
-    //!//     snprintf(eofstr(str), str_size - strlen(str), "%04X-", (uint16_t)(FW_VERSION));
-    // BuildNumber
-    //!//     snprintf(eofstr(str), str_size - strlen(str), "%d/",FW_BUILDNR);
-    // LanguageInfo - removed
-    //    snprintf(eofstr(str), str_size - strlen(str), "%d/", get_actual_lang()->lang_code);
-    // SelfTestResult
-    if (last_selftest_time == 0)
-        strlcat(str, "0", str_size);
-    else
-        snprintf(eofstr(str), str_size - strlen(str), "%lu-%lu", last_selftest_result, (HAL_GetTick() / 1000 - last_selftest_time));
-    strlcat(str, "/", str_size);
-    // LockBlock
-    block2hex(str, str_size, (uint8_t *)OTP_LOCK_BLOCK_ADDR, OTP_LOCK_BLOCK_SIZE);
-    append_crc(str, str_size);
-#endif //0
-}
-
 bool appendix_exist() {
+    // With recent bootloader this can be done the easy way
+#if BOOTLOADER()
     const version_t *bootloader = (const version_t *)BOOTLOADER_VERSION_ADDRESS;
-
     if (bootloader->major >= 1 && bootloader->minor >= 1) {
         return !(ram_data_exchange.model_specific_flags & APPENDIX_FLAG_MASK);
-    } else {
-        GPIO_PinState pinState = GPIO_PIN_SET;
-#ifndef _DEBUG //Secure backward compatibility
-        GPIO_InitTypeDef GPIO_InitStruct = { 0 };
-        GPIO_InitStruct.Pin = GPIO_PIN_13;
-        GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-        GPIO_InitStruct.Pull = GPIO_NOPULL;
-
-        HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-        HAL_Delay(50);
-        pinState = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_13);
-#else //In debug version the appendix status has to be tested by bootloader version greater or equal than 1.1
-        pinState = ram_data_exchange.model_specific_flags & APPENDIX_FLAG_MASK
-            ? GPIO_PIN_SET
-            : GPIO_PIN_RESET;
-#endif
-        return pinState == GPIO_PIN_RESET;
     }
+#endif
+
+    // If debugging session is active there is no appendix
+    if (DBGMCU->CR) {
+        return false;
+    }
+
+    // Check appendix state (temporary breaking the debugging)
+    GPIO_InitTypeDef init = {
+        .Pin = GPIO_PIN_13,
+        .Mode = GPIO_MODE_INPUT,
+        .Pull = GPIO_NOPULL,
+        .Speed = GPIO_SPEED_FREQ_LOW,
+        .Alternate = 0,
+    };
+    HAL_GPIO_Init(GPIOA, &init);
+    HAL_Delay(50);
+    GPIO_PinState pin_state = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_13);
+
+    // Reinitialize to allow attaching debugger later
+    init.Alternate = GPIO_AF0_SWJ;
+    init.Mode = GPIO_MODE_AF_PP;
+    HAL_GPIO_Init(GPIOA, &init);
+
+    return pin_state == GPIO_PIN_RESET;
+}
+
+bool signature_exist() {
+    const version_t *bootloader = (const version_t *)BOOTLOADER_VERSION_ADDRESS;
+    if (bootloader->major >= 1 && bootloader->minor >= 2)
+        return ram_data_exchange.fw_signature;
+    return false;
 }

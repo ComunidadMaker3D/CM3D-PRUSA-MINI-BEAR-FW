@@ -75,8 +75,8 @@ extern xyz_pos_t cartes;
 #if HAS_ABL_NOT_UBL
   extern float xy_probe_feedrate_mm_s;
   #define XY_PROBE_FEEDRATE_MM_S xy_probe_feedrate_mm_s
-#elif defined(XY_PROBE_SPEED)
-  #define XY_PROBE_FEEDRATE_MM_S MMM_TO_MMS(XY_PROBE_SPEED)
+#elif defined(XY_PROBE_SPEED_INITIAL)
+  #define XY_PROBE_FEEDRATE_MM_S MMM_TO_MMS(XY_PROBE_SPEED_INITIAL)
 #else
   #define XY_PROBE_FEEDRATE_MM_S PLANNER_XY_FEEDRATE()
 #endif
@@ -96,9 +96,10 @@ feedRate_t get_homing_bump_feedrate(const AxisEnum axis);
 extern feedRate_t feedrate_mm_s;
 
 /**
- * Feedrate scaling
+ * Feedrate scaling is applied to all G0/G1, G2/G3, and G5 moves
  */
 extern int16_t feedrate_percentage;
+#define MMS_SCALED(V) ((V) * 0.01f * feedrate_percentage)
 
 // The active extruder (tool). Set with T<extruder> command.
 #if EXTRUDERS > 1
@@ -146,19 +147,25 @@ typedef struct { xyz_pos_t min, max; } axis_limits_t;
       , const uint8_t old_tool_index=0, const uint8_t new_tool_index=0
     #endif
   );
-#else
+  #define SET_SOFT_ENDSTOP_LOOSE(loose) NOOP
+
+#else // !HAS_SOFTWARE_ENDSTOPS
+
   constexpr bool soft_endstops_enabled = false;
   //constexpr axis_limits_t soft_endstop = {
   //  { X_MIN_POS, Y_MIN_POS, Z_MIN_POS },
   //  { X_MAX_POS, Y_MAX_POS, Z_MAX_POS } };
   #define apply_motion_limits(V)    NOOP
   #define update_software_endstops(...) NOOP
-#endif
+  #define SET_SOFT_ENDSTOP_LOOSE(V)     NOOP
+
+#endif // !HAS_SOFTWARE_ENDSTOPS
 
 void report_current_position();
 
 void get_cartesian_from_steppers();
 void set_current_from_steppers_for_axis(const AxisEnum axis);
+void set_current_from_steppers();
 
 /**
  * sync_plan_position
@@ -174,6 +181,11 @@ void sync_plan_position_e();
  * (or from wherever it has been told it is located).
  */
 void line_to_current_position(const feedRate_t &fr_mm_s=feedrate_mm_s);
+
+/// Plans (non-blocking) linear move to relative distance.
+/// It uses prepare_move_to_destination() for the planning which
+/// is suitable with UBL.
+void plan_move_by(const feedRate_t fr, const float dx, const float dy = 0, const float dz = 0, const float de = 0);
 
 void prepare_move_to_destination();
 
@@ -195,8 +207,24 @@ inline void prepare_internal_move_to_destination(const feedRate_t &fr_mm_s=0.0f)
   }
 #endif
 
+/// Plans (non-blocking) Z-Manhattan fast (non-linear) move to the specified location
+/// Feedrate is in mm/s
+/// Z-Manhattan: moves XY and Z independently. Raises before or lowers after XY motion.
+/// Suitable for Z probing because it does not apply motion limits
+/// Uses logical coordinates
+void plan_park_move_to(const float rx, const float ry, const float rz, const feedRate_t &fr_xy, const feedRate_t &fr_z);
+
+static inline void plan_park_move_to_xyz(const xyz_pos_t &xyz, const feedRate_t &fr_xy, const feedRate_t &fr_z) {
+  plan_park_move_to(xyz.x, xyz.y, xyz.z, fr_xy, fr_z);
+}
+
 /**
  * Blocking movement and shorthand functions
+ */
+
+/**
+ * Performs a blocking fast parking move to (X, Y, Z) and sets the current_position.
+ * Parking (Z-Manhattan): Moves XY and Z independently. Raises Z before or lowers Z after XY motion.
  */
 void do_blocking_move_to(const float rx, const float ry, const float rz, const feedRate_t &fr_mm_s=0.0f);
 void do_blocking_move_to(const xy_pos_t &raw, const feedRate_t &fr_mm_s=0.0f);
@@ -220,12 +248,21 @@ void remember_feedrate_and_scaling();
 void remember_feedrate_scaling_off();
 void restore_feedrate_and_scaling();
 
+#if HAS_Z_AXIS
+  void do_z_clearance(const_float_t zclear, const bool lower_allowed=false);
+#else
+  inline void do_z_clearance(float, bool=false) {}
+#endif
+
 //
 // Homing
 //
 
 uint8_t axes_need_homing(uint8_t axis_bits=0x07);
 bool axis_unhomed_error(uint8_t axis_bits=0x07);
+
+static inline bool axes_should_home(uint8_t axis_bits=0x07) { return axes_need_homing(axis_bits); }
+static inline bool homing_needed_error(uint8_t axis_bits=0x07) { return axis_unhomed_error(axis_bits); }
 
 #if ENABLED(NO_MOTION_BEFORE_HOMING)
   #define MOTION_CONDITIONS (IsRunning() && !axis_unhomed_error())
@@ -237,7 +274,17 @@ void set_axis_is_at_home(const AxisEnum axis);
 
 void set_axis_is_not_at_home(const AxisEnum axis);
 
-void homeaxis(const AxisEnum axis);
+#if ENABLED(PRECISE_HOMING)
+  void homeaxis(const AxisEnum axis, const feedRate_t fr_mm_s=0.0, bool invert_home_dir = false, bool can_calibrate = true);
+#else
+  void homeaxis(const AxisEnum axis, const feedRate_t fr_mm_s=0.0, bool invert_home_dir = false);
+#endif
+
+void do_homing_move(const AxisEnum axis, const float distance, const feedRate_t fr_mm_s=0.0
+  #if ENABLED(MOVE_BACK_BEFORE_HOMING)
+    , bool can_move_back_before_homing = false
+  #endif
+);
 
 /**
  * Workspace offsets
@@ -401,8 +448,38 @@ FORCE_INLINE bool position_is_reachable_by_probe(const xy_pos_t &pos) { return p
     DXC_DUPLICATION_MODE = 2
   };
 
+#else
+
+  #define TOOL_X_HOME_DIR(T) X_HOME_DIR
+
 #endif
 
 #if HAS_M206_COMMAND
   void set_home_offset(const AxisEnum axis, const float v);
 #endif
+
+#if USE_SENSORLESS
+  struct sensorless_t;
+  sensorless_t start_sensorless_homing_per_axis(const AxisEnum axis);
+  void end_sensorless_homing_per_axis(const AxisEnum axis, sensorless_t enable_stealth);
+#endif
+
+#if ENABLED(PRECISE_HOMING)
+  
+  /**
+  * \returns offset of current position to calibrated safe home position.
+  * This includes HOME_GAP. Works for X and Y axes only.
+  */
+  float calibrated_home_offset(const AxisEnum axis);
+
+  /**
+   * Provides precise homing for X and Y axes
+   * \param axis axis to be homed (cartesian printers only)
+   * \param axis_home_dir direction where the home of the axis is
+   * \param can_calibrate allows re-calibration if homing is not successful
+   * calibration should be disabled for crash recovery, power loss recovery etc.
+   * \return probe offset
+   */ 
+  float home_axis_precise(AxisEnum axis, int axis_home_dir, bool can_calibrate = true);
+
+#endif // ENABLED(PRECISE_HOMING)

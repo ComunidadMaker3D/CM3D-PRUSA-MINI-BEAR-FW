@@ -1,9 +1,9 @@
 #include "minda_broken_cable_detection.h"
-#include "Z_probe.h"
 #include "bsod.h"
 #include "FreeRTOS.h"
 #include "task.h"   //taskENTER_CRITICAL
 #include <string.h> //memset
+#include "Z_probe.hpp"
 #include "MindaRedscreen.h"
 #include "wdt.h"
 #include "gpio.h"
@@ -53,7 +53,7 @@ void MINDA_BROKEN_CABLE_DETECTION__END() {
 
         taskENTER_CRITICAL(); //never exit CRITICAL, wanted to use __disable_irq, but it does not work. i do not know why
         wdt_iwdg_refresh();
-        general_error("HOMING ERROR", "Please check minda\ncable");
+        fatal_error("HOMING ERROR", "Please check minda\ncable");
     }
 }
 

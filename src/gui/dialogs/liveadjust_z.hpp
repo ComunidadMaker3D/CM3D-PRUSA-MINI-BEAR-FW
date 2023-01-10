@@ -13,16 +13,28 @@ class WindowScale : public AddSuperWindow<window_frame_t> {
     window_numb_t scaleNum1;
     window_numb_t scaleNum2;
 
-    uint16_t mark_old_y;
+    // existing value represents state where old line was not erased yet
+    std::optional<uint16_t> mark_old_y;
     uint16_t mark_new_y;
 
 public:
     WindowScale(window_t *parent, point_i16_t pt);
-    void SetMark(float percent);
+
+    /**
+     * @brief Set mark position.
+     * @param relative position, 0 - top, 1 - bottom
+     */
+    void SetMark(float relative);
 
 protected:
     virtual void unconditionalDraw() override;
     Rect16 getNumRect(point_i16_t pt) const;
+
+private:
+    void horizLine(uint16_t width_pad, uint16_t height, color_t color);
+    void horizLineWhite(uint16_t width_pad, uint16_t height) {
+        horizLine(width_pad, height, COLOR_WHITE);
+    }
 };
 
 //regular window bound to Z calib
@@ -79,9 +91,6 @@ public:
 
 protected:
     void moveNozzle();
-
-    const Rect16 getTextRect();
-    const Rect16 getNozzleRect();
 
     virtual void windowEvent(EventLock /*has private ctor*/, window_t *sender, GUI_event_t event, void *param) override;
 };

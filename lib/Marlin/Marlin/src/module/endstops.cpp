@@ -48,6 +48,10 @@
   #include "../feature/joystick.h"
 #endif
 
+#ifdef MINDA_BROKEN_CABLE_DETECTION
+  #include "Z_probe.hpp"
+#endif
+
 Endstops endstops;
 
 // private:
@@ -83,7 +87,7 @@ Endstops::esbits_t Endstops::live_state = 0;
 #if ENABLED(SPI_ENDSTOPS)
   Endstops::tmc_spi_homing_t Endstops::tmc_spi_homing; // = 0
 #endif
-#if ENABLED(IMPROVE_HOMING_RELIABILITY)
+#if ENABLED(IMPROVE_HOMING_RELIABILITY) && HOMING_SG_GUARD_DURATION > 0
   millis_t sg_guard_period; // = 0
 #endif
 
@@ -293,7 +297,7 @@ void Endstops::enable(const bool onoff) {
   resync();
 }
 
-// Disable / Enable endstops based on ENSTOPS_ONLY_FOR_HOMING and global enable
+// Disable / Enable endstops based on ENDSTOPS_ONLY_FOR_HOMING and global enable
 void Endstops::not_homing() {
   enabled = enabled_globally;
 }
@@ -395,7 +399,7 @@ static void print_es_state(const bool is_hit, PGM_P const label=nullptr) {
   SERIAL_EOL();
 }
 
-void _O2 Endstops::M119() {
+void __O2 Endstops::M119() {
   #if ENABLED(BLTOUCH)
     bltouch._set_SW_mode();
   #endif
@@ -494,6 +498,10 @@ void _O2 Endstops::M119() {
 
 // Check endstops - Could be called from Temperature ISR!
 void Endstops::update() {
+
+  #ifdef MINDA_BROKEN_CABLE_DETECTION
+    buddy::hw::Z_probe_interrupt_handler();
+  #endif
 
   #if !ENDSTOP_NOISE_THRESHOLD
     if (!abort_enabled()) return;

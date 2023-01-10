@@ -12,13 +12,12 @@
 // chci ten prostredni) Navic jsem nucen pouzivat ten hnusnej FILE interface,
 // protoze na Mini asi nic jinyho nebude
 
-#include "../Marlin/src/libs/circularqueue.h"
+#include "../../lib/Marlin/Marlin/src/libs/circularqueue.h"
 #include "base64_stream_decoder.h"
 #include <algorithm>
 #include <stdio.h>
 #include <string.h>
-
-#include "ff.h"
+#include <optional>
 
 // jeste budu asi potrebovat nacitac cele radky, pricemz musim dat pozor, aby se
 // precetlo max 80 znaku a vse ostatni az do \n se zahodilo
@@ -48,19 +47,12 @@ struct SLine {
         return (const char *)(l);
     }
 
-    bool IsBeginThumbnail() const;
+    bool IsBeginThumbnail(uint16_t expected_width, uint16_t expected_height, bool allow_larder) const;
     bool IsEndThumbnail() const;
 };
 
-// zamerne je to singleton, aby se vsude vynutilo, ze je opravdu jen jedna
-// instance v celem programu Lze to pripadne predelat, ale je potreba myslet na
-// to, ze dekodovaci automaty nejsou bezestavove a musi nekde svoje stavy
-// pamatovat.
 class GCodeThumbDecoder {
-    GCodeThumbDecoder() {
-    }
-
-    Base64StreamDecoder base64SD;
+    std::optional<Base64StreamDecoder> base64SD;
 
     // dale budu potrebovat jednoduchy kruhovy buffer, kam se zdekoduje base64
     // radka radka ma max 80 znaku, z cehoz je 77 platnych base64 Jelikoz base64
@@ -73,11 +65,11 @@ class GCodeThumbDecoder {
     TBytesQueue bytesQ;
 
     // tohle nacte jeden bajt z fajlu
-    bool ReadByte(FIL *f, uint8_t &byte);
+    bool ReadByte(FILE *f, uint8_t &byte);
 
     // @return false, pokud se doslo na konec fajlu
     // pritom muze byt neco v line nactene, to je normalni
-    bool ReadLine(FIL *f, SLine &line);
+    bool ReadLine(FILE *f, SLine &line);
 
     bool AppendBase64Chars(const char *src, TBytesQueue &bytesQ);
 
@@ -140,23 +132,32 @@ class GCodeThumbDecoder {
 
     States state = States::Searching;
 
+    FILE *f;
+    bool allow_larger;
+    uint16_t expected_width;
+    uint16_t expected_height;
+
 public:
-    inline static GCodeThumbDecoder &Instance() {
-        static GCodeThumbDecoder i;
-        return i;
-    }
+    inline GCodeThumbDecoder(FILE *f, uint16_t expected_width, uint16_t expected_height, bool decode_base64, bool allow_larger = false)
+        : base64SD(decode_base64 ? std::make_optional(Base64StreamDecoder()) : std::nullopt)
+        , f(f)
+        , allow_larger(allow_larger)
+        , expected_width(expected_width)
+        , expected_height(expected_height) {}
 
     // idealne to udelat tak, ze bych se vubec nemusel zabejvat koncema radku -
     // normalni search automat, kterej proste ve fajlu najde spravnou uvodni
     // sekvenci
 
-    int Read(FIL *f, char *pc, int n);
+    int Read(char *pc, int n);
 
     void Reset() {
         // opakovani pokusu - cteni po vice bajtech
         // nutno resetovat automaty, coz je taky potreba vyresit
         state = States::Searching;
-        base64SD.Reset();
+        if (base64SD.has_value()) {
+            base64SD->Reset();
+        }
         while (!bytesQ.isEmpty())
             bytesQ.dequeue();
     }

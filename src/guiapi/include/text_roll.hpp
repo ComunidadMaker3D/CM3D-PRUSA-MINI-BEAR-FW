@@ -7,13 +7,11 @@ enum class invalidate_t { no,
     yes };
 
 class txtroll_t {
-    enum {
-        base_tick_ms = 40,
-        wait_before_roll_ms = 2000,
-        wait_after_roll_ms = 1000
-    };
+    static constexpr uint32_t base_tick_ms = 40;
+    static constexpr uint32_t wait_before_roll_ms = 2000;
+    static constexpr uint32_t wait_after_roll_ms = 1000;
 
-    enum class phase_t {
+    enum class phase_t : uint8_t {
         uninitialized, // similar to idle, but init did not run
         init_roll,
         wait_before_roll,
@@ -34,10 +32,10 @@ class txtroll_t {
 
     static size_t instance_counter;
 
-    static Rect16 rect_meas(Rect16 rc, string_view_utf8 text, const font_t *font, padding_ui8_t padding, uint16_t flags);
+    static Rect16 rect_meas(Rect16 rc, string_view_utf8 text, const font_t *font, padding_ui8_t padding, Align_t alignment);
     static uint16_t meas(Rect16 rc, string_view_utf8 text, const font_t *pf);
 
-    void renderTextAlign(Rect16 rc, string_view_utf8 text, const font_t *font, color_t clr_back, color_t clr_text, padding_ui8_t padding, uint8_t alignment) const;
+    void renderTextAlign(Rect16 rc, string_view_utf8 text, const font_t *font, color_t clr_back, color_t clr_text, padding_ui8_t padding, Align_t alignment) const;
 
 public:
     constexpr txtroll_t()
@@ -52,9 +50,9 @@ public:
 
     ~txtroll_t() { --instance_counter; }
 
-    void Init(Rect16 rc, string_view_utf8 text, const font_t *font, padding_ui8_t padding, uint8_t alignment);
+    void Init(Rect16 rc, string_view_utf8 text, const font_t *font, padding_ui8_t padding, Align_t alignment);
     invalidate_t Tick();
-    void RenderTextAlign(Rect16 rc, string_view_utf8 text, const font_t *font, color_t clr_back, color_t clr_text, padding_ui8_t padding, uint8_t alignment) const;
+    void RenderTextAlign(Rect16 rc, string_view_utf8 text, const font_t *font, color_t clr_back, color_t clr_text, padding_ui8_t padding, Align_t alignment) const;
     bool NeedInit() const { return phase == phase_t::uninitialized; }
     void Reset() {
         if (phase != phase_t::uninitialized)

@@ -2,79 +2,129 @@
 #pragma once
 
 #include "IDialog.hpp"
-#include "DialogRadioButton.hpp"
+#include "radio_button.hpp"
+#include "radio_button_fsm.hpp"
 #include "window_text.hpp"
 #include "window_icon.hpp"
 #include "../../lang/i18n.h"
 #include "client_response.hpp"
 
-extern const PhaseResponses Responses_NONE;
-extern const PhaseResponses Responses_Next;
-extern const PhaseResponses Responses_Ok;
-extern const PhaseResponses Responses_OkCancel;
-extern const PhaseResponses Responses_AbortRetryIgnore;
-extern const PhaseResponses Responses_YesNo;
-extern const PhaseResponses Responses_YesNoCancel;
-extern const PhaseResponses Responses_RetryCancel;
+/*****************************************************************************/
+// clang-format off
+static constexpr PhaseResponses Responses_NONE                 = { Response::_none,    Response::_none,  Response::_none,       Response::_none };
+static constexpr PhaseResponses Responses_Next                 = { Response::Next,     Response::_none,  Response::_none,       Response::_none };
+static constexpr PhaseResponses Responses_Ok                   = { Response::Ok,       Response::_none,  Response::_none,       Response::_none };
+static constexpr PhaseResponses Responses_OkCancel             = { Response::Ok,       Response::Cancel, Response::_none,       Response::_none };
+static constexpr PhaseResponses Responses_AbortRetryIgnore     = { Response::Abort,    Response::Retry,  Response::Ignore,      Response::_none };
+static constexpr PhaseResponses Responses_RetryAbort           = { Response::Retry,    Response::Abort,  Response::_none,       Response::_none };
+static constexpr PhaseResponses Responses_YesNo                = { Response::Yes,      Response::No,     Response::_none,       Response::_none };
+static constexpr PhaseResponses Responses_YesNoCancel          = { Response::Yes,      Response::No,     Response::Cancel,      Response::_none };
+static constexpr PhaseResponses Responses_YesNoIgnore          = { Response::Yes,      Response::No,     Response::Ignore,      Response::_none };
+static constexpr PhaseResponses Responses_YesAbort             = { Response::Yes,      Response::Abort,  Response::_none,       Response::_none };
+static constexpr PhaseResponses Responses_YesRetry             = { Response::Yes,      Response::Retry,  Response::_none,       Response::_none };
+static constexpr PhaseResponses Responses_RetryCancel          = { Response::Retry,    Response::Cancel, Response::_none,       Response::_none };
+static constexpr PhaseResponses Responses_ChangeIgnoreCancel   = { Response::Change,   Response::Ignore, Response::Cancel,      Response::_none };
+static constexpr PhaseResponses Responses_ChangeIgnoreAbort    = { Response::Change,   Response::Ignore, Response::Abort,       Response::_none };
+static constexpr PhaseResponses Responses_ChangeOkAbort        = { Response::Change,   Response::Ok,     Response::Abort,       Response::_none };
+static constexpr PhaseResponses Responses_IgnoreAbort          = { Response::Ignore,   Response::Abort,  Response::_none,       Response::_none };
+static constexpr PhaseResponses Responses_YesNoFSDisable       = { Response::Yes,      Response::No,     Response::FS_disable,  Response::_none };
+
+// clang-format on
+/*****************************************************************************/
 
 /*****************************************************************************/
 //MsgBoxBase
 class MsgBoxBase : public AddSuperWindow<IDialog> {
 protected:
     window_text_t text;
-    RadioButton buttons;
+
+    // memory space to store radio buttons
+    // template parameter <PhasesPrintPreview> is irrelevant - same size
+    // in case it changes swap <PhasesPrintPreview> with the biggest type
+    // it is checked in BindToFSM method
+    using RadioMemSpace = std::aligned_union<0, RadioButton, RadioButtonFsm<PhasesPrintPreview>>::type;
+    RadioMemSpace radio_mem_space;
+    IRadioButton *pButtons = nullptr;
     Response result; //return value
 public:
-    MsgBoxBase(Rect16 rect, const PhaseResponses *resp, size_t def_btn, const PhaseTexts *labels,
-        string_view_utf8 txt, is_multiline multiline = is_multiline::yes);
+    MsgBoxBase(Rect16 rect, const PhaseResponses &resp, size_t def_btn, const PhaseTexts *labels,
+        string_view_utf8 txt, is_multiline multiline = is_multiline::yes, is_closed_on_click_t close = is_closed_on_click_t::yes);
     Response GetResult();
 
+    template <class FSM_PHASE>
+    void BindToFSM(FSM_PHASE phase) {
+        static_assert(sizeof(RadioButtonFsm<FSM_PHASE>) <= sizeof(radio_mem_space), "RadioMemSpace is too small");
+
+        if (!pButtons) { // pButtons can never be null
+            assert("unassigned msgbox");
+            return;
+        }
+
+        Rect16 rc = pButtons->GetRect();
+        bool has_icon = pButtons->HasIcon();
+        color_t back = pButtons->GetBackColor();
+
+        ReleaseCaptureOfNormalWindow();
+        pButtons->~IRadioButton();
+
+        pButtons = new (&radio_mem_space) RadioButtonFsm<FSM_PHASE>(this, rc, phase);
+        has_icon ? pButtons->SetHasIcon() : pButtons->ClrHasIcon();
+        pButtons->SetBackColor(back);
+
+        CaptureNormalWindow(*pButtons);
+    }
+
 protected:
-    Rect16 getTextRect();
     virtual void windowEvent(EventLock /*has private ctor*/, window_t *sender, GUI_event_t event, void *param) override;
-};
-
-/*****************************************************************************/
-//MsgBoxTitled
-class MsgBoxTitled : public AddSuperWindow<MsgBoxBase> {
-    window_icon_t title_icon;
-    window_text_t title;
-
-public:
-    MsgBoxTitled(Rect16 rect, const PhaseResponses *resp, size_t def_btn, const PhaseTexts *labels,
-        string_view_utf8 txt, is_multiline multiline, string_view_utf8 tit, uint16_t title_icon_id_res);
-
-protected:
-    virtual void unconditionalDraw() override;
-
-    //some methods to help with construction
-    font_t *getTitleFont();
-    padding_ui8_t getTitlePadding();
-    Rect16 getTitleRect();      // icon must be initialized
-    Rect16 getTitledTextRect(); // icon and title must be initialized
+    Rect16 getTextRect();
 };
 
 /*****************************************************************************/
 //MsgBoxIconned
 class MsgBoxIconned : public AddSuperWindow<MsgBoxBase> {
-    window_icon_t icon;
 
 public:
-    MsgBoxIconned(Rect16 rect, const PhaseResponses *resp, size_t def_btn, const PhaseTexts *labels,
-        string_view_utf8 txt, is_multiline multiline, uint16_t icon_id_res);
+    MsgBoxIconned(Rect16 rect, const PhaseResponses &resp, size_t def_btn, const PhaseTexts *labels,
+        string_view_utf8 txt, is_multiline multiline, const png::Resource *icon_id_res,
+        is_closed_on_click_t close = is_closed_on_click_t::yes);
 
 protected:
+    window_icon_t icon;
+    // some methods to help with construction, so they can't be virtual
+    // some derived classes use them too, don't change visibility
+    Rect16 getIconRect();
+    Rect16 getTextRect();
+};
+
+/*****************************************************************************/
+//MsgBoxTitled
+class MsgBoxTitled : public AddSuperWindow<MsgBoxIconned> {
+public:
+    MsgBoxTitled(Rect16 rect, const PhaseResponses &resp, size_t def_btn, const PhaseTexts *labels,
+        string_view_utf8 txt, is_multiline multiline, string_view_utf8 tit, const png::Resource *title_icon_id_res,
+        is_closed_on_click_t close = is_closed_on_click_t::yes);
+
+protected:
+    window_text_t title;
+    virtual void unconditionalDraw() override;
+
+private:
     //some methods to help with construction
-    Rect16 getIconnedTextRect(); // icon and title must be initialized
+    Rect16 getTextRect();
+    Rect16 getLineRect();
+    Rect16 getIconRect();
+    Rect16 getTitleRect(); // icon must be initialized
+    font_t *getTitleFont();
+    padding_ui8_t getTitlePadding();
 };
 
 //todo enum default button
 //todo enum for size?
-Response MsgBox(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::RectScreenBody, is_multiline multiline = is_multiline::yes);
-Response MsgBoxError(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::RectScreenBody, is_multiline multiline = is_multiline::yes);
-Response MsgBoxQuestion(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::RectScreenBody, is_multiline multiline = is_multiline::yes);
-Response MsgBoxWarning(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::RectScreenBody, is_multiline multiline = is_multiline::yes);
-Response MsgBoxInfo(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::RectScreenBody, is_multiline multiline = is_multiline::yes);
-Response MsgBoxTitle(string_view_utf8 title, string_view_utf8 txt, const PhaseResponses &resp, size_t def_btn, Rect16 rect, uint16_t icon_id = 0, is_multiline multiline = is_multiline::yes);
-Response MsgBoxIcon(string_view_utf8 txt, uint16_t icon_id, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::RectScreenBody, is_multiline multiline = is_multiline::yes);
-Response MsgBoxPepa(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::RectScreenBody, is_multiline multiline = is_multiline::yes);
+Response MsgBox(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::DialogFrameRect, is_multiline multiline = is_multiline::yes);
+Response MsgBoxError(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::DialogFrameRect, is_multiline multiline = is_multiline::yes);
+Response MsgBoxQuestion(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::DialogFrameRect, is_multiline multiline = is_multiline::yes);
+Response MsgBoxWarning(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::DialogFrameRect, is_multiline multiline = is_multiline::yes);
+Response MsgBoxInfo(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::DialogFrameRect, is_multiline multiline = is_multiline::yes);
+Response MsgBoxTitle(string_view_utf8 title, string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::DialogFrameRect, const png::Resource *icon = nullptr, is_multiline multiline = is_multiline::yes);
+Response MsgBoxIcon(string_view_utf8 txt, const png::Resource *icon_id, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::DialogFrameRect, is_multiline multiline = is_multiline::yes);
+Response MsgBoxPepa(string_view_utf8 txt, const PhaseResponses &resp = Responses_NONE, size_t def_btn = 0, Rect16 rect = GuiDefaults::DialogFrameRect, is_multiline multiline = is_multiline::yes);

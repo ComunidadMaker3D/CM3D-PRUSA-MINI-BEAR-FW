@@ -1,33 +1,41 @@
-cmake_minimum_required(VERSION 3.13)
+target_include_directories(firmware PRIVATE .)
 
-project(A3ides)
-enable_language(ASM)
+add_subdirectory(device)
+add_subdirectory(segger)
+add_subdirectory(hw)
+add_subdirectory(logging)
+add_subdirectory(common)
 
-include("CProjectDefines.cmake")
-if(NOT BUILD_VARIANT)
-  set(BUILD_VARIANT "DEBUG")
+if(CONNECT OR WUI)
+  add_subdirectory(transfers)
 endif()
 
-if(${BUILD_VARIANT} STREQUAL "DEBUG")
-  add_compile_options("-Og" "-ggdb")
+if(CONNECT)
+  if(NOT WUI)
+    message(FATAL_ERROR "Connect needs WUI!")
+  endif()
+  add_subdirectory(connect)
 endif()
 
-add_compile_options(
-  "-mthumb" "-mcpu=cortex-m4" "-mfloat-abi=hard" "-mfpu=fpv4-sp-d16" "-ffunction-sections"
-  "-fdata-sections"
-  )
+if(RESOURCES)
+  add_subdirectory(resources)
+endif()
 
-add_executable(firmware)
-target_include_directories(firmware PRIVATE Common Inc ../GuiAPI/include)
-target_sources(firmware PRIVATE ${CPROJECT_${BUILD_VARIANT}_SOURCES})
-target_compile_definitions(firmware PRIVATE ${CPROJECT_${BUILD_VARIANT}_C_COMPILER_MACROS})
-target_include_directories(firmware PRIVATE "${CPROJECT_${BUILD_VARIANT}_C_COMPILER_INCLUDES}")
-target_include_directories(firmware PRIVATE "${CPROJECT_${BUILD_VARIANT}_CPP_COMPILER_INCLUDES}")
+if(BOOTLOADER)
+  add_subdirectory(bootloader)
+endif()
 
-set_property(TARGET firmware PROPERTY CXX_STANDARD 11)
-set_target_properties(
-  firmware
-  PROPERTIES
-    LINK_FLAGS
-    "-mcpu=cortex-m4 -mthumb -Wall -Wextra -mfloat-abi=hard -mfpu=fpv4-sp-d16 -Wl,--gc-sections -Wl,--undefined=uxTopUsedPriority,--undefined=init_task,-T,${CPROJECT_${BUILD_VARIANT}_LINKER_SCRIPT}"
-  )
+if(GUI)
+  add_subdirectory(gui)
+  add_subdirectory(guiapi)
+endif()
+
+if(BOARD MATCHES "BUDDY")
+  add_subdirectory(buddy)
+  add_subdirectory(lang)
+  add_subdirectory(marlin_stubs)
+  add_subdirectory(syslog)
+  add_subdirectory(semihosting)
+endif()
+
+target_sources(firmware PRIVATE freertos.c freertos_openocd.c)

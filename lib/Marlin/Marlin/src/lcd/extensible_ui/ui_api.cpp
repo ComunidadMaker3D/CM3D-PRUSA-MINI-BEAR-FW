@@ -517,13 +517,13 @@ namespace ExtUI {
     int getTMCBumpSensitivity(const axis_t axis) {
       switch (axis) {
         #if X_SENSORLESS
-          case X: return stepperX.homing_threshold();
+          case X: return stepperX.stall_sensitivity();
         #endif
         #if Y_SENSORLESS
-          case Y: return stepperY.homing_threshold();
+          case Y: return stepperY.stall_sensitivity();
         #endif
         #if Z_SENSORLESS
-          case Z: return stepperZ.homing_threshold();
+          case Z: return stepperZ.stall_sensitivity();
         #endif
         default: return 0;
       }
@@ -533,13 +533,25 @@ namespace ExtUI {
       switch (axis) {
         #if X_SENSORLESS || Y_SENSORLESS || Z_SENSORLESS
           #if X_SENSORLESS
-            case X: stepperX.homing_threshold(value); break;
+            #if ENABLED(CRASH_RECOVERY)
+              case X: crash_s.home_sensitivity[0] = value; break;
+            #else
+              case X: stepperX.stall_sensitivity(value); break;
+            #endif
           #endif
           #if Y_SENSORLESS
-            case Y: stepperY.homing_threshold(value); break;
+            #if ENABLED(CRASH_RECOVERY)
+              case Y: crash_s.home_sensitivity[1] = value; break;
+            #else
+              case Y: stepperY.stall_sensitivity(value); break;
+            #endif
           #endif
           #if Z_SENSORLESS
-            case Z: stepperZ.homing_threshold(value); break;
+            #if ENABLED(CRASH_RECOVERY)
+              case Z: crash_s.home_sensitivity[2] = value; break;
+            #else
+              case Z: stepperZ.stall_sensitivity(value); break;
+            #endif
           #endif
         #else
           UNUSED(value);
@@ -690,7 +702,7 @@ namespace ExtUI {
      * what nozzle is printing.
      */
     void smartAdjustAxis_steps(const int16_t steps, const axis_t axis, bool linked_nozzles) {
-      const float mm = steps * planner.steps_to_mm[axis];
+      const float mm = steps * planner.mm_per_step[axis];
 
       if (!babystepAxis_steps(steps, axis)) return;
 
@@ -731,7 +743,7 @@ namespace ExtUI {
      * steps that is at least mm long.
      */
     int16_t mmToWholeSteps(const float mm, const axis_t axis) {
-      const float steps = mm / planner.steps_to_mm[axis];
+      const float steps = mm / planner.mm_per_step[axis];
       return steps > 0 ? ceil(steps) : floor(steps);
     }
   #endif
@@ -866,7 +878,7 @@ namespace ExtUI {
     enableHeater(heater);
     #if HAS_HEATED_BED
       if (heater == BED)
-        thermalManager.setTargetBed(constrain(value, 0, BED_MAXTEMP - 10));
+        thermalManager.setTargetBed(constrain(value, 0, BED_MAXTEMP - BED_MAXTEMP_SAFETY_MARGIN));
       else
     #endif
       {

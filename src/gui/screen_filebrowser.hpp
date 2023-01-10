@@ -1,12 +1,16 @@
 #pragma once
 #include "gui.hpp"
-#include "window_file_list.hpp"
+#include "window_menu_adv.hpp"
 #include "window_header.hpp"
 #include "screen.hpp"
 
 class screen_filebrowser_data_t : public AddSuperWindow<screen_t> {
     window_header_t header;
-    window_file_list_t w_filelist;
+    FileBrowser file_browser;
+
+    static void clearFirstVisibleSFN(); // this method writes into pointer received from marlin_vars, it is super ugly
+    void printTheFile();
+    void goHome();
 
 public:
     screen_filebrowser_data_t();

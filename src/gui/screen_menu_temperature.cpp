@@ -1,43 +1,22 @@
-// screen_menu_temperature.cpp
+/**
+ * @file screen_menu_temperature.cpp
+ */
 
-#include "gui.hpp"
-#include "screen_menu.hpp"
-#include "screen_menus.hpp"
+#include "screen_menu_temperature.hpp"
 #include "marlin_client.h"
-#include "WindowMenuItems.hpp"
-#include "MItem_print.hpp"
 #include "ScreenHandler.hpp"
 
-class MI_COOLDOWN : public WI_LABEL_t {
-    static constexpr const char *const label = N_("Cooldown");
+ScreenMenuTemperature::ScreenMenuTemperature()
+    : ScreenMenuTemperature__(_(label)) {
+    EnableLongHoldScreenAction();
 
-public:
-    MI_COOLDOWN()
-        : WI_LABEL_t(_(label), 0, is_enabled_t::yes, is_hidden_t::no) {
-    }
-
-protected:
-    virtual void click(IWindowMenu & /*window_menu*/) override {
-        Screens::Access()->WindowEvent(GUI_event_t::CLICK, (void *)this);
-    }
-};
-
-/*****************************************************************************/
-//parent alias
-using Screen = ScreenMenu<EHeader::Off, EFooter::On, HelpLines_None, MI_RETURN, MI_NOZZLE, MI_HEATBED, MI_PRINTFAN, MI_COOLDOWN>;
-
-class ScreenMenuTemperature : public Screen {
-public:
-    constexpr static const char *label = N_("TEMPERATURE");
-    ScreenMenuTemperature()
-        : Screen(_(label)) {}
-
-protected:
-    virtual void windowEvent(EventLock /*has private ctor*/, window_t *sender, GUI_event_t event, void *param) override;
-};
+#if (PRINTER_TYPE != PRINTER_PRUSA_MINI)
+    header.SetIcon(&png::temperature_white_16x16);
+#endif //PRINTER_PRUSA_MINI
+}
 
 void ScreenMenuTemperature::windowEvent(EventLock /*has private ctor*/, window_t *sender, GUI_event_t event, void *param) {
-    if (event == GUI_event_t::CLICK) {
+    if (event == GUI_event_t::CHILD_CLICK) {
         marlin_set_target_nozzle(0);
         marlin_set_display_nozzle(0);
         marlin_set_target_bed(0);
@@ -49,8 +28,4 @@ void ScreenMenuTemperature::windowEvent(EventLock /*has private ctor*/, window_t
     } else {
         SuperWindowEvent(sender, event, param);
     }
-}
-
-ScreenFactory::UniquePtr GetScreenMenuTemperature() {
-    return ScreenFactory::Screen<ScreenMenuTemperature>();
 }

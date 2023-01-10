@@ -4,9 +4,6 @@
 #include "../../lcd/ultralcd.h"
 #include "../../sd/cardreader.h"
 
-//-//
-#include "dbg.h"
-
 #include "M73_PE.h"
 #include "../Marlin/src/libs/stopwatch.h"
 extern Stopwatch print_job_timer;
@@ -81,35 +78,40 @@ oTime2Pause.mInit();
 #if ENABLED(M73_PRUSA)
 void GcodeSuite::M73_PE()
 {
+std::optional<uint8_t> P = std::nullopt;
+std::optional<uint32_t> R = std::nullopt;
+std::optional<uint32_t> T = std::nullopt;
+if (parser.seen('P')) P = parser.value_byte();
+if (parser.seen('R')) R = parser.value_ulong()*60;
+if (parser.seen('T')) T = parser.value_ulong()*60;
+
+M73_PE_no_parser(P, R, T);
+}
+
+void M73_PE_no_parser(std::optional<uint8_t> P, std::optional<uint32_t> R, std::optional<uint32_t> T)
+{
 uint32_t nTimeNow;
 uint8_t nValue;
 
 //ui.set_progress_time(...);
 nTimeNow=print_job_timer.duration();              // !!! [s]
-if(parser.seen('P'))
+if(P)
      {
-     nValue=parser.value_byte();
-	 if(parser.seen('R'))
+     nValue=*P;
+	 if(R)
 	      {
           oProgressData.oPercentDone.mSetValue((uint32_t)nValue,nTimeNow);
-          oProgressData.oTime2End.mSetValue((uint32_t)(parser.value_ulong()*60),nTimeNow); // [min] -> [s]
-//_dbg("### M73pe / P :: %d t0: %d\r",oProgressData.oPercentDone.mGetValue(),nTimeNow);
-//_dbg("### M73pe / R :: %d t0: %d\r",oProgressData.oTime2End.mGetValue(),nTimeNow);
+          oProgressData.oTime2End.mSetValue(*R,nTimeNow); // [min] -> [s]
 	      }
 	 else {
           oProgressData.oPercentDirectControl.mSetValue((uint32_t)nValue,nTimeNow);
-//_dbg("### M73pe / p :: %d t0: %d\r",oProgressData.oPercentDirectControl.mGetValue(),nTimeNow);
           }
      }
 
-if(parser.seen('T'))
+if(T)
      {
-     oProgressData.oTime2Pause.mSetValue((uint32_t)(parser.value_ulong()*60),nTimeNow); // [min] -> [s]
-//_dbg("### M73pe / T :: %d t0: %d\r",oProgressData.oTime2Pause.mGetValue(),nTimeNow);
+     oProgressData.oTime2Pause.mSetValue(*T,nTimeNow); // [min] -> [s]
      }
-
-// musi byt 'nastaven' "LCD_SET_PROGRESS_MANUALLY"
-//    ui.set_progress(parser.value_byte());
-//.//_dbg("### M73pe :: P: %d R: %d T: %d",nP,nR,nT);
 }
+
 #endif

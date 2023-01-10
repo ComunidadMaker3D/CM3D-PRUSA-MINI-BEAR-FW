@@ -1,23 +1,41 @@
 //screen_home.hpp
 #pragma once
 #include "window_header.hpp"
-#include "status_footer.h"
+#include "status_footer.hpp"
 #include "gui.hpp"
 #include "screen.hpp"
+#include "gcode_info.hpp"
 
-struct screen_home_data_t : public AddSuperWindow<screen_t> {
+class screen_home_data_t : public AddSuperWindow<screen_t> {
+public:
+    static constexpr size_t button_count = 6;
+
+private:
     static bool usbWasAlreadyInserted; // usb inserted at least once
+    static uint32_t lastUploadCount;
+    static bool ever_been_opened; //set by ctor
+    static bool try_esp_flash;    // we try this maximum once
+
     bool usbInserted;
+    bool event_in_progress;
+    bool first_event { true };
 
     window_header_t header;
-    status_footer_t footer;
+    StatusFooter footer;
 
     window_icon_t logo;
-    window_icon_button_t w_buttons[6];
-    window_text_t w_labels[6];
+    window_icon_button_t w_buttons[button_count];
+    window_text_t w_labels[button_count];
 
+    GCodeInfo &gcode;
+
+public:
+    static bool EverBeenOpened() { return ever_been_opened; }
     screen_home_data_t();
     virtual ~screen_home_data_t() override;
+
+    virtual void InitState(screen_init_variant var) override;
+    virtual screen_init_variant GetCurrentState() const override;
 
 protected:
     virtual void windowEvent(EventLock /*has private ctor*/, window_t *sender, GUI_event_t event, void *param) override;
@@ -27,4 +45,10 @@ private:
 
     void printBtnEna();
     void printBtnDis();
+    bool moreGcodesUploaded();
+
+    static bool find_latest_gcode(char *fpath, int fpath_len, char *fname, int fname_len);
+
+    void on_enter();
+    void handle_crash_dump();
 };

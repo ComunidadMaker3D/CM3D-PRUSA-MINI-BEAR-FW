@@ -1,4 +1,4 @@
-//HardwareSerial.cpp - A3ides/STM32
+//HardwareSerial.cpp - Buddy/STM32
 #include <Arduino.h>
 #include "buffered_serial.hpp"
 #include "cmsis_os.h"
@@ -14,6 +14,10 @@ void HardwareSerial::begin(unsigned long baud) {
 }
 
 void HardwareSerial::begin(unsigned long baud, byte config) {
+}
+
+void HardwareSerial::close() {
+    BufferedSerial::uart2.Close();
 }
 
 int HardwareSerial::available(void) {

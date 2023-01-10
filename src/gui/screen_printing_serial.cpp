@@ -1,28 +1,21 @@
-#include "dbg.h"
 #include "screen_printing_serial.hpp"
 #include "config.h"
 #include "marlin_client.h"
-#include "filament.h"
-#include "marlin_server.h"
-#include "guitypes.hpp"    //font_meas_text
-#include "stm32f4xx_hal.h" //HAL_GetTick
+#include "filament.hpp"
 #include "i18n.h"
 #include "ScreenHandler.hpp"
-#include "screen_menus.hpp"
 #include "odometer.hpp"
-
-//octo icon
-static point_ui16_t pt_ico() { return icon_meas(resource_ptr(IDR_PNG_serial_printing)); }
+#include "window_icon.hpp"
+#include "screen_menu_tune.hpp"
 
 screen_printing_serial_data_t::screen_printing_serial_data_t()
     : AddSuperWindow<ScreenPrintingModel>(_(caption))
-    , octo_icon(this, Rect16((240 - pt_ico().x) / 2, GuiDefaults::RectScreenBody.Top(), pt_ico().x, pt_ico().y), IDR_PNG_serial_printing)
+    , octo_icon(this, Rect16((240 - png::serial_printing_172x138.w) / 2, GuiDefaults::RectScreenBody.Top(), png::serial_printing_172x138.w, png::serial_printing_172x138.h), &png::serial_printing_172x138)
     , last_tick(0)
     , connection(connection_state_t::connected) {
     ClrMenuTimeoutClose();
     ClrOnSerialClose(); // don't close on Serial print
 
-    octo_icon.SetIdRes(IDR_PNG_serial_printing);
     octo_icon.Disable();
     octo_icon.Unshadow();
 
@@ -74,7 +67,7 @@ void screen_printing_serial_data_t::windowEvent(EventLock /*has private ctor*/, 
 }
 
 void screen_printing_serial_data_t::tuneAction() {
-    Screens::Access()->Open(GetScreenMenuTune);
+    Screens::Access()->Open(ScreenFactory::Screen<ScreenMenuTune>);
 }
 
 void screen_printing_serial_data_t::pauseAction() {

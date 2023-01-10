@@ -1,6 +1,6 @@
 #include "gcode_thumb_decoder.h"
 
-bool SLine::IsBeginThumbnail() const {
+bool SLine::IsBeginThumbnail(uint16_t expected_width, uint16_t expected_height, bool allow_larder) const {
     static const char thumbnailBegin[] = "; thumbnail begin "; // pozor na tu mezeru na konci
     // pokud zacina radka na ; thumbnail, lze se tim zacit zabyvat
     // nemuzu pouzivat zadne pokrocile algoritmy, musim vystacit se strcmp
@@ -17,7 +17,7 @@ bool SLine::IsBeginThumbnail() const {
         int ss = sscanf(lc, "%ux%u %lu", &x, &y, &bytes);
         if (ss == 3) { // 3 uspesne prectene itemy - rozliseni
             // je to platny zacatek thumbnailu, je to ten muj?
-            if (x == 220 && y == 124) {
+            if ((x == expected_width && y == expected_height) || (allow_larder && x >= expected_width && y >= expected_height)) {
                 // je to ten muj, ktery chci
                 return true;
             }
@@ -33,15 +33,14 @@ bool SLine::IsEndThumbnail() const {
         std::min(sizeof(l), sizeof(thumbnailEnd)) - 1);
 }
 
-bool GCodeThumbDecoder::ReadByte(FIL *f, uint8_t &byte) {
-    UINT br = 0;
-    return f_read(f, &byte, 1, &br) == FR_OK && br == 1;
+bool GCodeThumbDecoder::ReadByte(FILE *f, uint8_t &byte) {
+    return fread(&byte, 1, 1, f) == 1;
 }
 
-bool GCodeThumbDecoder::ReadLine(FIL *f, SLine &line) {
+bool GCodeThumbDecoder::ReadLine(FILE *f, SLine &line) {
     uint8_t byte;
     for (;;) {
-        if (f_eof(f) || !ReadByte(f, byte))
+        if (feof(f) || !ReadByte(f, byte))
             return false;
         if (byte == '\n')
             break;
@@ -52,23 +51,31 @@ bool GCodeThumbDecoder::ReadLine(FIL *f, SLine &line) {
 
 bool GCodeThumbDecoder::AppendBase64Chars(
     const char *src, GCodeThumbDecoder::TBytesQueue &bytesQ) {
-    // a tohle uz je i s dekodovanim
-    while (*src) {
-        uint8_t bajt;
-        switch (base64SD.ConsumeChar(*src++, &bajt)) {
-        case 1:
-            bytesQ.enqueue(bajt);
-            break;
-        case -1:
-            return false; // chyba v dekodovani
-        default:
-            break; // zadny bajt na vystup
+    if (base64SD.has_value()) {
+        // a tohle uz je i s dekodovanim
+        while (*src) {
+            uint8_t bajt;
+            switch (base64SD->ConsumeChar(*src++, &bajt)) {
+            case 1:
+                bytesQ.enqueue(bajt);
+                break;
+            case -1:
+                return false; // chyba v dekodovani
+            default:
+                break; // zadny bajt na vystup
+            }
+        }
+    } else {
+        // Pass-through mode, we just extract the preview, but don't decode the
+        // base64.
+        while (*src) {
+            bytesQ.enqueue(*src++);
         }
     }
     return true;
 }
 
-int GCodeThumbDecoder::Read(FIL *f, char *pc, int n) {
+int GCodeThumbDecoder::Read(char *pc, int n) {
     static const size_t MAX_READ_LINES = 2048; // treba 2K radek
     switch (state) {
     case States::Searching: {
@@ -85,7 +92,7 @@ int GCodeThumbDecoder::Read(FIL *f, char *pc, int n) {
                 state = States::Error;
                 break; // konec souboru
             }
-            if (l.IsBeginThumbnail()) {
+            if (l.IsBeginThumbnail(expected_width, expected_height, allow_larger)) {
                 state = States::Base64;
                 break; // nalezen png meho rozmeru, budu cist jeho data
             }
@@ -99,7 +106,7 @@ int GCodeThumbDecoder::Read(FIL *f, char *pc, int n) {
     // [[fallthrough]];  // here is no break intentionally
     case States::Base64: {
         int i = 0; // spravne by to melo byt unsigned, ale chci eliminovat
-            // warning i == n, pricemz n je definitoricky int
+                   // warning i == n, pricemz n je definitoricky int
         for (;;) {
             // tady nemusim cist po radkach, akorat pak bych musel naprasit
             // automat na hledani ; thumbnail end, coz se mi nechce nicmene ten

@@ -1,11 +1,8 @@
 #include "IScreenPrinting.hpp"
 #include "config.h"
-#include "marlin_client.h"
-#include "marlin_server.h"
-#include "guitypes.hpp"    //font_meas_text
-#include "stm32f4xx_hal.h" //HAL_GetTick
 #include "i18n.h"
 #include "ScreenHandler.hpp"
+#include "png_resources.hpp"
 
 IScreenPrinting::IScreenPrinting(string_view_utf8 caption)
     : AddSuperWindow<screen_t>()
@@ -13,7 +10,7 @@ IScreenPrinting::IScreenPrinting(string_view_utf8 caption)
     , footer(this) {
     IScreenPrinting::ClrMenuTimeoutClose(); // don't close on menu timeout
     header.SetText(caption);
-    header.SetIcon(IDR_PNG_print_16px);
+    header.SetIcon(&png::print_16x16);
     ths = this;
 }
 

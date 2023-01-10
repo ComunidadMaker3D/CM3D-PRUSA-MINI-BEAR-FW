@@ -1,27 +1,24 @@
-// screen_menu_info.cpp
+/**
+ * @file screen_menu_info.cpp
+ */
 
-#include "gui.hpp"
-#include "screen_menu.hpp"
-#include "WindowMenuItems.hpp"
-#include "MItem_menus.hpp"
-#include "screen_menus.hpp"
+#include "screen_menu_info.hpp"
+#include "png_resources.hpp"
+#include "DialogMoveZ.hpp"
 
-#ifdef _DEBUG
-using Screen = ScreenMenu<EHeader::Off, EFooter::On, HelpLines_None, MI_RETURN, MI_SYS_INFO, MI_FAIL_STAT_disabled,
-    MI_SUPPORT_disabled, MI_SENSOR_INFO, MI_VERSION_INFO, MI_ODOMETER>;
-#else
-using Screen = ScreenMenu<EHeader::Off, EFooter::On, HelpLines_None, MI_RETURN, MI_SYS_INFO, MI_SENSOR_INFO, MI_VERSION_INFO, MI_ODOMETER>;
-#endif //_DEBUG
+void ScreenMenuInfo::windowEvent(EventLock /*has private ctor*/, window_t *sender, GUI_event_t event, void *param) {
+    if (event == GUI_event_t::HELD_RELEASED) {
+        DialogMoveZ::Show();
+        return;
+    }
 
-//cannot move it to header - 'ScreenMenuInfo' has a field 'ScreenMenuInfo::<anonymous>' whose type uses the anonymous namespace [-Wsubobject-linkage]
+    SuperWindowEvent(sender, event, param);
+}
 
-class ScreenMenuInfo : public Screen {
-public:
-    constexpr static const char *label = N_("INFO");
-    ScreenMenuInfo()
-        : Screen(_(label)) {}
-};
-
-ScreenFactory::UniquePtr GetScreenMenuInfo() {
-    return ScreenFactory::Screen<ScreenMenuInfo>();
+ScreenMenuInfo::ScreenMenuInfo()
+    : ScreenMenuInfo__(_(label)) {
+    EnableLongHoldScreenAction();
+#if (PRINTER_TYPE != PRINTER_PRUSA_MINI)
+    header.SetIcon(&png::info_16x16);
+#endif //PRINTER_PRUSA_MINI
 }

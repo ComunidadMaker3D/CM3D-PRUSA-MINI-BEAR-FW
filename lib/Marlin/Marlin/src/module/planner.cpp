@@ -104,6 +104,8 @@
   #include "../feature/spindle_laser.h"
 #endif
 
+#include "configuration_store.h"
+
 // Delay for delivery of first block to the stepper ISR, if the queue contains 2 or
 // fewer movements. The delay is measured in milliseconds, and must be less than 250ms
 #define BLOCK_DELAY_FOR_1ST_MOVE 100
@@ -120,14 +122,16 @@ volatile uint8_t Planner::block_buffer_head,    // Index of the next block to be
                  Planner::block_buffer_nonbusy, // Index of the first non-busy block
                  Planner::block_buffer_planned, // Index of the optimally planned block
                  Planner::block_buffer_tail;    // Index of the busy block, if any
-uint16_t Planner::cleaning_buffer_counter;      // A counter to disable queuing of blocks
 uint8_t Planner::delay_before_delivering;       // This counter delays delivery of blocks when queue becomes empty to allow the opportunity of merging blocks
+
+// A flag to drop queuing of blocks and abort any pending move
+bool Planner::draining_buffer;
 
 planner_settings_t Planner::settings;           // Initialized by settings.load()
 
 uint32_t Planner::max_acceleration_steps_per_s2[XYZE_N]; // (steps/s^2) Derived from mm_per_s2
 
-float Planner::steps_to_mm[XYZE_N];           // (mm) Millimeters per step
+float Planner::mm_per_step[XYZE_N];           // (mm) Millimeters per step
 
 #if DISABLED(CLASSIC_JERK)
   float Planner::junction_deviation_mm;       // (mm) M205 J
@@ -1247,11 +1251,15 @@ void Planner::check_axes_activity() {
   //
   // Disable inactive axes
   //
-  #if ENABLED(DISABLE_X)
-    if (!axis_active.x) disable_X();
-  #endif
-  #if ENABLED(DISABLE_Y)
-    if (!axis_active.y) disable_Y();
+  #if (ENABLED(XY_LINKED_ENABLE) && (ENABLED(DISABLE_X) || ENABLED(DISABLE_Y)))
+    if (!axis_active.x && !axis_active.y) disable_XY();
+  #else
+    #if ENABLED(DISABLE_X)
+      if (!axis_active.x) disable_X();
+    #endif
+    #if ENABLED(DISABLE_Y)
+      if (!axis_active.y) disable_Y();
+    #endif
   #endif
   #if ENABLED(DISABLE_Z)
     if (!axis_active.z) disable_Z();
@@ -1362,6 +1370,34 @@ void Planner::check_axes_activity() {
 
     refresh_e_factor(FILAMENT_SENSOR_EXTRUDER_NUM);
   }
+#endif
+
+#if ENABLED(IMPROVE_HOMING_RELIABILITY)
+
+  void Planner::enable_stall_prevention(const bool onoff) {
+    static motion_state_t saved_motion_state;
+    if (onoff) {
+      saved_motion_state.acceleration.x = settings.max_acceleration_mm_per_s2[X_AXIS];
+      saved_motion_state.acceleration.y = settings.max_acceleration_mm_per_s2[Y_AXIS];
+      settings.max_acceleration_mm_per_s2[X_AXIS] = settings.max_acceleration_mm_per_s2[Y_AXIS] = XY_HOMING_ACCELERATION;
+      #if ENABLED(DELTA)
+        saved_motion_state.acceleration.z = settings.max_acceleration_mm_per_s2[Z_AXIS];
+        settings.max_acceleration_mm_per_s2[Z_AXIS] = 100;
+      #endif
+      #if HAS_CLASSIC_JERK
+        saved_motion_state.jerk_state = max_jerk;
+        max_jerk.set(XY_HOMING_JERK, XY_HOMING_JERK OPTARG(DELTA, 0));
+      #endif
+    }
+    else {
+      settings.max_acceleration_mm_per_s2[X_AXIS] = saved_motion_state.acceleration.x;
+      settings.max_acceleration_mm_per_s2[Y_AXIS] = saved_motion_state.acceleration.y;
+      TERN_(DELTA, settings.max_acceleration_mm_per_s2[Z_AXIS] = saved_motion_state.acceleration.z);
+      TERN_(HAS_CLASSIC_JERK, max_jerk = saved_motion_state.jerk_state);
+    }
+    refresh_acceleration_rates();
+  }
+
 #endif
 
 #if HAS_LEVELING
@@ -1480,8 +1516,7 @@ void Planner::quick_stop() {
   // must be handled: The tail could change between the read and the assignment
   // so this must be enclosed in a critical section
 
-  const bool was_enabled = STEPPER_ISR_ENABLED();
-  if (was_enabled) DISABLE_STEPPER_DRIVER_INTERRUPT();
+  const bool was_enabled = stepper.suspend();
 
   // Drop all queue entries
   block_buffer_nonbusy = block_buffer_planned = block_buffer_head = block_buffer_tail;
@@ -1495,28 +1530,37 @@ void Planner::quick_stop() {
     clear_block_buffer_runtime();
   #endif
 
-  // Make sure to drop any attempt of queuing moves for at least 1 second
-  cleaning_buffer_counter = 1000;
+  // Start draining the planner (requires one full marlin loop to complete!)
+  drain();
+
+  // Discard the current running block
+  stepper.quick_stop();
 
   // Reenable Stepper ISR
-  if (was_enabled) ENABLE_STEPPER_DRIVER_INTERRUPT();
-
-  // And stop the stepper ISR
-  stepper.quick_stop();
+  if (was_enabled) stepper.wake_up();
 }
 
+// Called from ISR
 void Planner::endstop_triggered(const AxisEnum axis) {
+  #if ENABLED(CRASH_RECOVERY)
+    if (crash_s.is_active() && crash_s.is_enabled() && (axis == X_AXIS || axis == Y_AXIS)) {
+      // endstop triggered: save the current planner state
+      crash_s.axis_hit_isr(axis);
+      crash_s.set_state(Crash_s::TRIGGERED_ISR);
+    }
+  #endif
+
   // Record stepper position and discard the current block
   stepper.endstop_triggered(axis);
 }
 
 float Planner::triggered_position_mm(const AxisEnum axis) {
-  return stepper.triggered_position(axis) * steps_to_mm[axis];
+  return stepper.triggered_position(axis) * mm_per_step[axis];
 }
 
 void Planner::finish_and_disable() {
-  while (has_blocks_queued() || cleaning_buffer_counter) idle();
-  disable_all_steppers();
+  while (has_blocks_queued() && !draining_buffer) idle(true);
+  if (!draining_buffer) disable_all_steppers();
 }
 
 /**
@@ -1530,13 +1574,12 @@ float Planner::get_axis_position_mm(const AxisEnum axis) {
     if (axis == CORE_AXIS_1 || axis == CORE_AXIS_2) {
 
       // Protect the access to the position.
-      const bool was_enabled = STEPPER_ISR_ENABLED();
-      if (was_enabled) DISABLE_STEPPER_DRIVER_INTERRUPT();
+      const bool was_enabled = stepper.suspend();
 
       const int32_t p1 = stepper.position(CORE_AXIS_1),
                     p2 = stepper.position(CORE_AXIS_2);
 
-      if (was_enabled) ENABLE_STEPPER_DRIVER_INTERRUPT();
+      if (was_enabled) stepper.wake_up();
 
       // ((a1+a2)+(a1-a2))/2 -> (a1+a2+a1-a2)/2 -> (a1+a1)/2 -> a1
       // ((a1+a2)-(a1-a2))/2 -> (a1+a2-a1+a2)/2 -> (a2+a2)/2 -> a2
@@ -1547,19 +1590,23 @@ float Planner::get_axis_position_mm(const AxisEnum axis) {
   #else
     axis_steps = stepper.position(axis);
   #endif
-  return axis_steps * steps_to_mm[axis];
+  return axis_steps * mm_per_step[axis];
+}
+
+bool Planner::busy() {
+  return !draining_buffer && (
+      has_blocks_queued()
+      #if ENABLED(EXTERNAL_CLOSED_LOOP_CONTROLLER)
+        || (READ(CLOSED_LOOP_ENABLE_PIN) && !READ(CLOSED_LOOP_MOVE_COMPLETE_PIN))
+      #endif
+    );
 }
 
 /**
  * Block until all buffered steps are executed / cleaned
  */
 void Planner::synchronize() {
-  while (
-    has_blocks_queued() || cleaning_buffer_counter
-    #if ENABLED(EXTERNAL_CLOSED_LOOP_CONTROLLER)
-      || (READ(CLOSED_LOOP_ENABLE_PIN) && !READ(CLOSED_LOOP_MOVE_COMPLETE_PIN))
-    #endif
-  ) idle();
+  while (busy()) idle(true);
 }
 
 /**
@@ -1585,12 +1632,10 @@ bool Planner::_buffer_steps(const xyze_long_t &target
   , feedRate_t fr_mm_s, const uint8_t extruder, const float &millimeters
 ) {
 
-  // If we are cleaning, do not accept queuing of movements
-  if (cleaning_buffer_counter) return false;
-
   // Wait for the next available block
   uint8_t next_buffer_head;
   block_t * const block = get_next_free_block(next_buffer_head);
+  if (!block) return false;
 
   // Fill the block with the specified movement
   if (!_populate_block(block, false, target
@@ -1636,7 +1681,7 @@ bool Planner::_buffer_steps(const xyze_long_t &target
  *  fr_mm_s     - (target) speed of the move
  *  extruder    - target extruder
  *
- * Returns true is movement is acceptable, false otherwise
+ * Returns true if movement is acceptable, false otherwise
  */
 bool Planner::_populate_block(block_t * const block, bool split_move,
   const abce_long_t &target
@@ -1778,32 +1823,32 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
   } delta_mm;
   #if IS_CORE
     #if CORE_IS_XY
-      delta_mm.head.x = da * steps_to_mm[A_AXIS];
-      delta_mm.head.y = db * steps_to_mm[B_AXIS];
-      delta_mm.z      = dc * steps_to_mm[Z_AXIS];
-      delta_mm.a      = (da + db) * steps_to_mm[A_AXIS];
-      delta_mm.b      = CORESIGN(da - db) * steps_to_mm[B_AXIS];
+      delta_mm.head.x = da * mm_per_step[A_AXIS];
+      delta_mm.head.y = db * mm_per_step[B_AXIS];
+      delta_mm.z      = dc * mm_per_step[Z_AXIS];
+      delta_mm.a      = (da + db) * mm_per_step[A_AXIS];
+      delta_mm.b      = CORESIGN(da - db) * mm_per_step[B_AXIS];
     #elif CORE_IS_XZ
-      delta_mm.head.x = da * steps_to_mm[A_AXIS];
-      delta_mm.y      = db * steps_to_mm[Y_AXIS];
-      delta_mm.head.z = dc * steps_to_mm[C_AXIS];
-      delta_mm.a      = (da + dc) * steps_to_mm[A_AXIS];
-      delta_mm.c      = CORESIGN(da - dc) * steps_to_mm[C_AXIS];
+      delta_mm.head.x = da * mm_per_step[A_AXIS];
+      delta_mm.y      = db * mm_per_step[Y_AXIS];
+      delta_mm.head.z = dc * mm_per_step[C_AXIS];
+      delta_mm.a      = (da + dc) * mm_per_step[A_AXIS];
+      delta_mm.c      = CORESIGN(da - dc) * mm_per_step[C_AXIS];
     #elif CORE_IS_YZ
-      delta_mm.x      = da * steps_to_mm[X_AXIS];
-      delta_mm.head.y = db * steps_to_mm[B_AXIS];
-      delta_mm.head.z = dc * steps_to_mm[C_AXIS];
-      delta_mm.b      = (db + dc) * steps_to_mm[B_AXIS];
-      delta_mm.c      = CORESIGN(db - dc) * steps_to_mm[C_AXIS];
+      delta_mm.x      = da * mm_per_step[X_AXIS];
+      delta_mm.head.y = db * mm_per_step[B_AXIS];
+      delta_mm.head.z = dc * mm_per_step[C_AXIS];
+      delta_mm.b      = (db + dc) * mm_per_step[B_AXIS];
+      delta_mm.c      = CORESIGN(db - dc) * mm_per_step[C_AXIS];
     #endif
   #else
-    delta_mm.a = da * steps_to_mm[A_AXIS];
-    delta_mm.b = db * steps_to_mm[B_AXIS];
-    delta_mm.c = dc * steps_to_mm[C_AXIS];
+    delta_mm.a = da * mm_per_step[A_AXIS];
+    delta_mm.b = db * mm_per_step[B_AXIS];
+    delta_mm.c = dc * mm_per_step[C_AXIS];
   #endif
 
   #if EXTRUDERS
-    delta_mm.e = esteps_float * steps_to_mm[E_AXIS_N(extruder)];
+    delta_mm.e = esteps_float * mm_per_step[E_AXIS_N(extruder)];
   #endif
 
   if (block->steps.a < MIN_STEPS_PER_SEGMENT && block->steps.b < MIN_STEPS_PER_SEGMENT && block->steps.c < MIN_STEPS_PER_SEGMENT) {
@@ -1881,8 +1926,7 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
   // Enable active axes
   #if CORE_IS_XY
     if (block->steps.a || block->steps.b) {
-      enable_X();
-      enable_Y();
+      enable_XY();
     }
     #if DISABLED(Z_LATE_ENABLE)
       if (block->steps.z) enable_Z();
@@ -2056,7 +2100,7 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
 
   #if ENABLED(SLOWDOWN)
     if (WITHIN(moves_queued, 2, (BLOCK_BUFFER_SIZE) / 2 - 1)) {
-      if (segment_time_us < settings.min_segment_time_us) {
+      if ((segment_time_us < settings.min_segment_time_us) && esteps) {
         // buffer is draining, add extra time.  The amount of time added increases if the buffer is still emptied more.
         const uint32_t nst = segment_time_us + LROUND(2 * (settings.min_segment_time_us - segment_time_us) / moves_queued);
         inverse_secs = 1000000.0f / nst;
@@ -2069,13 +2113,12 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
 
   #if HAS_SPI_LCD
     // Protect the access to the position.
-    const bool was_enabled = STEPPER_ISR_ENABLED();
-    if (was_enabled) DISABLE_STEPPER_DRIVER_INTERRUPT();
+    const bool was_enabled = stepper.suspend();
 
     block_buffer_runtime_us += segment_time_us;
     block->segment_time_us = segment_time_us;
 
-    if (was_enabled) ENABLE_STEPPER_DRIVER_INTERRUPT();
+    if (was_enabled) stepper.wake_up();
   #endif
 
   block->nominal_speed_sqr = sq(block->millimeters * inverse_secs);   //   (mm/sec)^2 Always > 0
@@ -2310,22 +2353,27 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
     static xyze_float_t prev_unit_vec;
 
     xyze_float_t unit_vec =
-      #if IS_KINEMATIC && DISABLED(CLASSIC_JERK)
+      #if IS_KINEMATIC
         delta_mm_cart
       #else
-        { delta_mm.x, delta_mm.y, delta_mm.z, delta_mm.e }
+        #if HAS_POSITION_FLOAT
+          { target_float.x - position_float.x, target_float.y - position_float.y, target_float.z - position_float.z,  target_float.e - position_float.e}
+        #else
+          { delta_mm.x, delta_mm.y, delta_mm.z, delta_mm.e }
+        #endif
       #endif
     ;
-    unit_vec *= inverse_millimeters;
 
-    #if IS_CORE && DISABLED(CLASSIC_JERK)
-      /**
-       * On CoreXY the length of the vector [A,B] is SQRT(2) times the length of the head movement vector [X,Y].
-       * So taking Z and E into account, we cannot scale to a unit vector with "inverse_millimeters".
-       * => normalize the complete junction vector
-       */
+    /**
+     * On CoreXY the length of the vector [A,B] is SQRT(2) times the length of the head movement vector [X,Y].
+     * So taking Z and E into account, we cannot scale to a unit vector with "inverse_millimeters".
+     * => normalize the complete junction vector
+     * Also always normalize when float position is not available and there is E component.
+     */
+    if (ENABLED(IS_CORE) || (!HAS_POSITION_FLOAT && (esteps > 0)))
       normalize_junction_vector(unit_vec);
-    #endif
+    else
+      unit_vec *= inverse_millimeters;
 
     // Skip first block or when previous_nominal_speed is used as a flag for homing and offset cycles.
     if (moves_queued && !UNEAR_ZERO(previous_nominal_speed_sqr)) {
@@ -2333,6 +2381,9 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
       // NOTE: Max junction velocity is computed without sin() or acos() by trig half angle identity.
       float junction_cos_theta = (-prev_unit_vec.x * unit_vec.x) + (-prev_unit_vec.y * unit_vec.y)
                                + (-prev_unit_vec.z * unit_vec.z) + (-prev_unit_vec.e * unit_vec.e);
+      #if ENABLED(JD_DEBUG_OUTPUT)
+        SERIAL_ECHO_F(junction_cos_theta, 7);
+      #endif
 
       // NOTE: Computed without any expensive trig, sin() or acos(), by trig half angle identity of cos(theta).
       if (junction_cos_theta > 0.999999f) {
@@ -2350,17 +2401,20 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
                     sin_theta_d2 = SQRT(0.5f * (1.0f - junction_cos_theta)); // Trig half angle identity. Always positive.
 
         vmax_junction_sqr = (junction_acceleration * junction_deviation_mm * sin_theta_d2) / (1.0f - sin_theta_d2);
-        if (block->millimeters < 1) {
+        #if ENABLED(JD_SMALL_SEGMENT_HANDLING)
+          if (block->millimeters < 1) {
 
-          // Fast acos approximation, minus the error bar to be safe
-          const float junction_theta = (RADIANS(-40) * sq(junction_cos_theta) - RADIANS(50)) * junction_cos_theta + RADIANS(90) - 0.18f;
+            // Fast acos approximation, minus the error bar to be safe
+            const float junction_theta = (RADIANS(-40) * sq(junction_cos_theta) - RADIANS(50)) * junction_cos_theta + RADIANS(90) - 0.18f;
 
-          // If angle is greater than 135 degrees (octagon), find speed for approximate arc
-          if (junction_theta > RADIANS(135)) {
-            const float limit_sqr = block->millimeters / (RADIANS(180) - junction_theta) * junction_acceleration;
-            NOMORE(vmax_junction_sqr, limit_sqr);
+            // If angle is greater than 135 degrees (octagon), find speed for approximate arc
+            if (junction_theta > RADIANS(135)) {
+              const float limit_sqr = block->millimeters / (RADIANS(180) - junction_theta) * junction_acceleration;
+              NOMORE(vmax_junction_sqr, limit_sqr);
+            }
           }
-        }
+        #endif //JD_SMALL_SEGMENT_HANDLING
+
       }
 
       // Get the lowest speed
@@ -2481,6 +2535,11 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
   #endif // Classic Jerk Limiting
 
   // Max entry speed of this block equals the max exit speed of the previous block.
+  #if ENABLED(JD_DEBUG_OUTPUT)
+    SERIAL_ECHO(" ");
+    SERIAL_ECHO(vmax_junction_sqr);
+    SERIAL_EOL();
+  #endif
   block->max_entry_speed_sqr = vmax_junction_sqr;
 
   // Initialize block entry speed. Compute based on deceleration to user-defined MINIMUM_PLANNER_SPEED.
@@ -2503,6 +2562,23 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
   // Update previous path unit_vector and nominal speed
   previous_speed = current_speed;
   previous_nominal_speed_sqr = block->nominal_speed_sqr;
+
+  #if ENABLED(CRASH_RECOVERY)
+  {
+    const uint8_t crash_index = block - block_buffer;
+    Crash_s::crash_block_t &crash_block = crash_s.crash_block[crash_index];
+    auto &move_start = crash_s.move_start;
+
+    // save recovery data for the current block
+    crash_block.start_current_position = move_start.start_current_position;
+    crash_block.e_position = position_float[E_AXIS];
+    crash_block.e_steps = de;
+    crash_block.sdpos = move_start.sdpos;
+    crash_block.segment_idx = crash_s.gcode_state.segment_idx;
+    crash_block.inhibit_flags = crash_s.gcode_state.inhibit_flags;
+    crash_block.fr_mm_s = fr_mm_s;
+  }
+  #endif
 
   // Update the position
   position = target;
@@ -2530,6 +2606,7 @@ void Planner::buffer_sync_block() {
   // Wait for the next available block
   uint8_t next_buffer_head;
   block_t * const block = get_next_free_block(next_buffer_head);
+  if (!block) return;
 
   // Clear block
   memset(block, 0, sizeof(block_t));
@@ -2569,16 +2646,50 @@ bool Planner::buffer_segment(const float &a, const float &b, const float &c, con
   #if IS_KINEMATIC && DISABLED(CLASSIC_JERK)
     , const xyze_float_t &delta_mm_cart
   #endif
-  , const feedRate_t &fr_mm_s, const uint8_t extruder, const float &millimeters/*=0.0*/
+  , const feedRate_t &fr_mm_s, const uint8_t extruder, float millimeters/*=0.0*/
 ) {
 
-  // If we are cleaning, do not accept queuing of movements
-  if (cleaning_buffer_counter) return false;
+  // If we are aborting, do not accept queuing of movements
+  if (draining_buffer) return false;
+
+  #if ENABLED(CRASH_RECOVERY)
+  {
+    auto &move_start = crash_s.move_start;
+    auto &gcode_state = crash_s.gcode_state;
+    if (gcode_state.sdpos == move_start.sdpos) {
+      ++gcode_state.segment_idx;
+    } else {
+      // we are processing the beginning of a new logical move: update the constant
+      // values which are repeated in all subsequent segments
+      move_start.start_current_position = current_position;
+
+      // reset segment state
+      move_start.sdpos = gcode_state.sdpos;
+      gcode_state.segment_idx = 0;
+    }
+
+    if (crash_s.get_state() == Crash_s::REPLAY) {
+      // replay mode: drop initial segments
+      if (crash_s.segments_finished > 0) {
+        --crash_s.segments_finished;
+        return true;
+      }
+
+      // first real segment after recovering, manipulate the current state in order
+      // to resume the segment from the crashing position
+      set_machine_position_mm(crash_s.crash_position);
+      millimeters = 0.0f;
+
+      // continue normally
+      crash_s.set_state(Crash_s::PRINTING);
+    }
+  }
+  #endif
 
   // When changing extruders recalculate steps corresponding to the E position
   #if ENABLED(DISTINCT_E_FACTORS)
     if (last_extruder != extruder && settings.axis_steps_per_mm[E_AXIS_N(extruder)] != settings.axis_steps_per_mm[E_AXIS_N(last_extruder)]) {
-      position.e = LROUND(position.e * settings.axis_steps_per_mm[E_AXIS_N(extruder)] * steps_to_mm[E_AXIS_N(last_extruder)]);
+      position.e = LROUND(position.e * settings.axis_steps_per_mm[E_AXIS_N(extruder)] * mm_per_step[E_AXIS_N(last_extruder)]);
       last_extruder = extruder;
     }
   #endif
@@ -2784,6 +2895,15 @@ void Planner::set_e_position_mm(const float &e) {
     stepper.set_axis_position(E_AXIS, position.e);
 }
 
+void Planner::reset_position() {
+  LOOP_ABCE(i) {
+    position[i] = stepper.position((AxisEnum)i);
+    #if HAS_POSITION_FLOAT
+      position_float[i] = position[i] / settings.axis_steps_per_mm[i];
+    #endif
+  }
+}
+
 // Recalculate the steps/s^2 acceleration rates, based on the mm/s^2
 void Planner::reset_acceleration_rates() {
   #if ENABLED(DISTINCT_E_FACTORS)
@@ -2802,9 +2922,9 @@ void Planner::reset_acceleration_rates() {
   #endif
 }
 
-// Recalculate position, steps_to_mm if settings.axis_steps_per_mm changes!
+// Recalculate position, mm_per_step if settings.axis_steps_per_mm changes!
 void Planner::refresh_positioning() {
-  LOOP_XYZE_N(i) steps_to_mm[i] = 1.0f / settings.axis_steps_per_mm[i];
+  LOOP_XYZE_N(i) mm_per_step[i] = 1.0f / settings.axis_steps_per_mm[i];
   set_position_mm(current_position);
   reset_acceleration_rates();
 }
@@ -2880,3 +3000,76 @@ void Planner::set_max_jerk(const AxisEnum axis, float targetValue) {
   }
 
 #endif
+
+void Motion_Parameters::save_reset() {
+  save();
+  reset();
+}
+
+void Motion_Parameters::save() {
+  for (int i = 0; i < XYZE_N; ++i) {
+    mp.max_acceleration_mm_per_s2[i] = planner.settings.max_acceleration_mm_per_s2[i];
+    mp.max_feedrate_mm_s[i] = planner.settings.max_feedrate_mm_s[i];
+  }
+
+  mp.min_segment_time_us = planner.settings.min_segment_time_us;
+  mp.acceleration = planner.settings.acceleration;
+  mp.retract_acceleration = planner.settings.retract_acceleration;
+  mp.travel_acceleration = planner.settings.travel_acceleration;
+  mp.min_feedrate_mm_s = planner.settings.min_feedrate_mm_s;
+  mp.min_travel_feedrate_mm_s = planner.settings.min_travel_feedrate_mm_s;
+
+  #if DISABLED(CLASSIC_JERK)
+    mp.junction_deviation_mm = planner.junction_deviation_mm;
+    #if ENABLED(LIN_ADVANCE)
+      #if ENABLED(DISTINCT_E_FACTORS)
+        for (int i = 0; i < EXTRUDERS; ++i) {
+          mp.max_e_jerk[i] = planner.max_e_jerk[i];
+        }
+      #else
+        mp.max_e_jerk = planner.max_e_jerk;
+      #endif
+    #endif
+  #endif
+  #if HAS_CLASSIC_JERK
+    mp.max_jerk = planner.max_jerk;
+  #endif
+}
+
+void Motion_Parameters::load() {
+  for (int i = 0; i < XYZE_N; ++i) {
+    planner.settings.max_acceleration_mm_per_s2[i] = mp.max_acceleration_mm_per_s2[i];
+    planner.settings.max_feedrate_mm_s[i] = mp.max_feedrate_mm_s[i];
+  }
+
+  planner.settings.min_segment_time_us = mp.min_segment_time_us;
+  planner.settings.acceleration = mp.acceleration;
+  planner.settings.retract_acceleration = mp.retract_acceleration;
+  planner.settings.travel_acceleration = mp.travel_acceleration;
+  planner.settings.min_feedrate_mm_s = mp.min_feedrate_mm_s;
+  planner.settings.min_travel_feedrate_mm_s = mp.min_travel_feedrate_mm_s;
+
+  #if DISABLED(CLASSIC_JERK)
+    planner.junction_deviation_mm = mp.junction_deviation_mm;
+    #if ENABLED(LIN_ADVANCE)
+      #if ENABLED(DISTINCT_E_FACTORS)
+        for (int i = 0; i < EXTRUDERS; ++i) {
+          planner.max_e_jerk[i] = mp.max_e_jerk[i];
+        }
+      #else
+        planner.max_e_jerk = mp.max_e_jerk;
+      #endif
+    #endif
+  #endif
+  #if HAS_CLASSIC_JERK
+    planner.max_jerk = mp.max_jerk;
+  #endif
+
+  planner.reset_acceleration_rates();
+}
+
+void Motion_Parameters::reset() {
+  MarlinSettings::reset_motion();
+  planner.reset_acceleration_rates();
+}
+

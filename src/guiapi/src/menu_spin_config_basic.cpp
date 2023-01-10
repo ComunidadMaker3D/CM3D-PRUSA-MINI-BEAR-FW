@@ -22,3 +22,6 @@ const std::array<SpinConfigInt, MenuVars::AXIS_CNT> SpinCnf::axis_ranges = { { S
 const SpinConfigInt SpinCnf::steps_per_unit = SpinConfigInt(MenuVars::steps_per_unit_range);
 const SpinConfigInt SpinCnf::microstep_exponential = SpinConfigInt(MenuVars::microstep_exponential_range);
 const SpinConfigInt SpinCnf::rms_current = SpinConfigInt(MenuVars::axis_rms_currents_range);
+const SpinConfigInt SpinCnf::two_digits_uint = { { 0, 15, 1 } };
+const SpinConfigInt SpinCnf::crash_sensitivity_2209 = SpinConfigInt({ 0, 255, 1 }, spin_off_opt_t::no);
+const SpinConfigInt SpinCnf::crash_max_period_2209 = SpinConfigInt({ 0, 0xFFFFF, 1 }, spin_off_opt_t::no);

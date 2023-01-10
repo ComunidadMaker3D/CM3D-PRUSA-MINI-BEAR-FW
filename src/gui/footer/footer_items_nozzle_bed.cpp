@@ -1,24 +1,23 @@
 /**
  * @file footer_items_nozzle_bed.cpp
- * @author Radek Vana
- * @date 2021-04-14
  */
 
 #include "footer_items_nozzle_bed.hpp"
 #include "marlin_client.h"
-#include "resource.h"
 #include "filament.hpp"
+#include "png_resources.hpp"
+#include "i18n.h"
 
 FooterItemNozzle::FooterItemNozzle(window_t *parent)
-    : AddSuperWindow<FooterItemHeater>(parent, IDR_PNG_nozzle_16px, static_makeView, static_readValue) {
+    : AddSuperWindow<FooterItemHeater>(parent, &png::nozzle_16x16, static_makeView, static_readValue) {
 }
 
 FooterItemBed::FooterItemBed(window_t *parent)
-    : AddSuperWindow<FooterItemHeater>(parent, IDR_PNG_heatbed_16px, static_makeView, static_readValue) {
+    : AddSuperWindow<FooterItemHeater>(parent, &png::heatbed_16x16, static_makeView, static_readValue) {
 }
 
 int FooterItemNozzle::static_readValue() {
-    static const uint cold = 50;
+    static const uint cold = 45;
 
     uint current = marlin_vars()->temp_nozzle;
     uint target = marlin_vars()->target_nozzle;
@@ -50,3 +49,7 @@ string_view_utf8 FooterItemBed::static_makeView(int value) {
     static std::array<char, 10> buff;
     return static_makeViewIntoBuff(value, buff);
 }
+
+string_view_utf8 FooterItemNozzle::GetName() { return _("Nozzle"); }
+
+string_view_utf8 FooterItemBed::GetName() { return _("Bed"); }

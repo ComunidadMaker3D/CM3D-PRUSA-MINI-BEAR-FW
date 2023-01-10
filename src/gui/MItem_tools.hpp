@@ -7,16 +7,6 @@
 #include "WindowItemFormatableLabel.hpp"
 #include "config.h"
 
-class MI_WIZARD : public WI_LABEL_t {
-    static constexpr const char *const label = N_("Wizard");
-
-public:
-    MI_WIZARD();
-
-protected:
-    virtual void click(IWindowMenu &window_menu) override;
-};
-
 class MI_FILAMENT_SENSOR : public WI_SWITCH_OFF_ON_t {
     constexpr static const char *const label = N_("Filament Sensor");
 
@@ -24,7 +14,7 @@ class MI_FILAMENT_SENSOR : public WI_SWITCH_OFF_ON_t {
 
 public:
     MI_FILAMENT_SENSOR()
-        : WI_SWITCH_OFF_ON_t(init_index(), _(label), 0, is_enabled_t::yes, is_hidden_t::no) {}
+        : WI_SWITCH_OFF_ON_t(init_index(), _(label), nullptr, is_enabled_t::yes, is_hidden_t::no) {}
 
 protected:
     virtual void OnChange(size_t old_index) override;
@@ -55,86 +45,6 @@ class MI_MESH_BED : public WI_LABEL_t {
 
 public:
     MI_MESH_BED();
-
-protected:
-    virtual void click(IWindowMenu &window_menu) override;
-};
-
-class MI_SELFTEST : public WI_LABEL_t {
-    static constexpr const char *const label = N_("SelfTest");
-
-public:
-    MI_SELFTEST();
-
-protected:
-    virtual void click(IWindowMenu &window_menu) override;
-};
-
-class MI_SELFTEST_RESULT : public WI_LABEL_t {
-    static constexpr const char *const label = N_("Show SelfTest result");
-
-public:
-    MI_SELFTEST_RESULT();
-
-protected:
-    virtual void click(IWindowMenu &window_menu) override;
-};
-
-class MI_CALIB_FIRST : public WI_LABEL_t {
-    static constexpr const char *const label = N_("First Layer Calibration");
-
-public:
-    MI_CALIB_FIRST();
-
-protected:
-    virtual void click(IWindowMenu &window_menu) override;
-};
-
-class MI_TEST_FANS : public WI_LABEL_t {
-    static constexpr const char *const label = N_("Test FANs");
-
-public:
-    MI_TEST_FANS();
-
-protected:
-    virtual void click(IWindowMenu &window_menu) override;
-};
-
-class MI_TEST_XYZ : public WI_LABEL_t {
-    static constexpr const char *const label = N_("Test XYZ-Axis");
-
-public:
-    MI_TEST_XYZ();
-
-protected:
-    virtual void click(IWindowMenu &window_menu) override;
-};
-
-class MI_TEST_HEAT : public WI_LABEL_t {
-    static constexpr const char *const label = N_("Test Heaters");
-
-public:
-    MI_TEST_HEAT();
-
-protected:
-    virtual void click(IWindowMenu &window_menu) override;
-};
-
-class MI_ADVANCED_FAN_TEST : public WI_LABEL_t {
-    static constexpr const char *const label = "Advanced fan test"; // debug only - not translated
-
-public:
-    MI_ADVANCED_FAN_TEST();
-
-protected:
-    virtual void click(IWindowMenu &window_menu) override;
-};
-
-class MI_TEST_ABORT : public WI_LABEL_t {
-    static constexpr const char *const label = "Test Abort"; // debug only - not translated
-
-public:
-    MI_TEST_ABORT();
 
 protected:
     virtual void click(IWindowMenu &window_menu) override;
@@ -183,7 +93,7 @@ protected:
 };
 
 class MI_XFLASH_DELETE : public WI_LABEL_t {
-    static constexpr const char *const label = "XFLASH DELETE"; // intentionally not translated, only for debugging
+    static constexpr const char *const label = "Clear External Flash"; // intentionally not translated, only for debugging
 
 public:
     MI_XFLASH_DELETE();
@@ -193,7 +103,7 @@ protected:
 };
 
 class MI_XFLASH_RESET : public WI_LABEL_t {
-    static constexpr const char *const label = "XFLASH RESET"; // intentionally not translated, only for debugging
+    static constexpr const char *const label = "Delete Crash Dump"; // intentionally not translated, only for debugging
 
 public:
     MI_XFLASH_RESET();
@@ -297,6 +207,16 @@ class MI_EE_SAVEXML : public WI_LABEL_t {
 
 public:
     MI_EE_SAVEXML();
+
+protected:
+    virtual void click(IWindowMenu &window_menu) override;
+};
+
+class MI_EE_CLEAR : public WI_LABEL_t {
+    static constexpr const char *const label = "EE clear"; // intentionally not translated, only for debugging
+
+public:
+    MI_EE_CLEAR();
 
 protected:
     virtual void click(IWindowMenu &window_menu) override;
@@ -425,7 +345,7 @@ public:
 };
 class MI_ODOMETER_DIST : public WI_FORMATABLE_LABEL_t<float> {
 public:
-    MI_ODOMETER_DIST(string_view_utf8 label, uint16_t id_icon, is_enabled_t enabled, is_hidden_t hidden, float initVal);
+    MI_ODOMETER_DIST(string_view_utf8 label, const png::Resource *icon, is_enabled_t enabled, is_hidden_t hidden, float initVal);
 };
 
 class MI_ODOMETER_DIST_X : public MI_ODOMETER_DIST {

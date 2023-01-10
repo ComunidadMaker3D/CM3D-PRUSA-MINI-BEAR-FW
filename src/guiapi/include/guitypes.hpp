@@ -2,7 +2,31 @@
 #pragma once
 
 #include "guitypes.h"
+#include "resource.h"
+#include "general_response.hpp"
 #include <optional>
+
+namespace png {
+struct Resource {
+    FILE *file = nullptr;       // default file
+    const char *name = nullptr; // name is optional, external file might not need it
+    size_t offset = 0;          // 0 == no offset, all "normal" png files containing only one png has no offset
+    size_t size = 0;            // 0 == calculate at run time
+    uint16_t w = 0;             // 0 == calculate at run time
+    uint16_t h = 0;             // 0 == calculate at run time
+
+    constexpr Resource(const char *name, size_t offset, size_t size, uint16_t w, uint16_t h)
+        : file(nullptr)
+        , name(name)
+        , offset(offset)
+        , size(size)
+        , w(w)
+        , h(h) {}
+
+    FILE *Get() const;
+};
+
+} // namespace png
 
 enum class EFooter { Off,
     On };
@@ -32,6 +56,8 @@ struct GUIStartupProgress {
 union event_conversion_union {
     void *pvoid;
     point_ui16_t point;
+    Response response;
+    int i_val;
     struct header_t {
         layout_color layout;
     } header;
@@ -96,10 +122,10 @@ inline padding_ui8_t padding_ui8(uint8_t l, uint8_t t, uint8_t r, uint8_t b) {
 point_ui16_t icon_meas(const uint8_t *pi);
 size_ui16_t icon_size(const uint8_t *pi);
 
-const uint8_t *resource_ptr(uint16_t id);
+const uint8_t *resource_ptr(ResourceId id);
 
-uint16_t resource_size(uint16_t id);
+uint16_t resource_size(ResourceId id);
 
-FILE *resource_fopen(uint16_t id, const char *opentype);
+FILE *resource_fopen(ResourceId id, const char *opentype);
 
-font_t *resource_font(uint16_t id);
+font_t *resource_font(ResourceId id);

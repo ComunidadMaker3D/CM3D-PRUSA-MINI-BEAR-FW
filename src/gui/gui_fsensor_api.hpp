@@ -30,10 +30,15 @@ inline void validate() {
             }
             break;
         case FilamentSensors::init_status_t::PrinterNotInitialized:
+#if PRINTER_TYPE == PRINTER_PRUSA_MINI
+            FSensors_instance().Disable(); // will automatically disable MMU as well
+            return;
+#else
             if (MsgBoxWarning(_("Filament sensor not ready: calibration required. Disable printer filament sensor to continue anyway? To enable it you must perform calibration first. It is accessible from menu \"Calibrate\"."), Responses_YesRetry) == Response::Yes) {
                 FSensors_instance().Disable(); // will automatically disable MMU as well
                 return;
             }
+#endif
             break;
         }
     }
@@ -43,7 +48,7 @@ inline bool validate_for_cyclical_calls() {
     static bool can_run = true;
     if (!can_run)
         return false;
-    AutoRestore(can_run, false);
+    AutoRestore ar(can_run, false);
     validate();
     return true;
 }

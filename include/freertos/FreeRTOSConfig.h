@@ -70,6 +70,8 @@
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 
+#include <device/mcu.h>
+
 /*-----------------------------------------------------------
  * Application specific definitions.
  *
@@ -84,8 +86,6 @@
 
 /* Section where include file can be added */
 #define traceTASK_SWITCHED_IN()                            \
-    extern void StartIdleMonitor(void);                    \
-    StartIdleMonitor();                                    \
                                                            \
     if (prvGetTCBFromHandle(NULL) == xIdleTaskHandle) {    \
         SEGGER_SYSVIEW_OnIdle();                           \
@@ -93,9 +93,7 @@
         SEGGER_SYSVIEW_OnTaskStartExec((U32)pxCurrentTCB); \
     }
 
-#define traceTASK_SWITCHED_OUT()      \
-    extern void EndIdleMonitor(void); \
-    EndIdleMonitor()
+#define traceTASK_SWITCHED_OUT()
 
 #define traceTASK_CREATE(tcb)                              \
     static int __task_counter = 0;                         \
@@ -124,22 +122,31 @@ extern uint32_t SystemCoreClock;
 #define configTICK_RATE_HZ               ((TickType_t)1000)
 #define configMAX_PRIORITIES             (7)
 #define configMINIMAL_STACK_SIZE         ((uint16_t)128)
-#define configTOTAL_HEAP_SIZE            ((size_t)49152)
+#define configTOTAL_HEAP_SIZE            ((size_t)40960)
 #define configUSE_MALLOC_FAILED_HOOK     1
 
 #define configNUM_THREAD_LOCAL_STORAGE_POINTERS 2
 #define THREAD_LOCAL_STORAGE_SYSLOG_IDX         1
 #define THREAD_LOCAL_STORAGE_USB_LOGGING_IDX    2
 
-#define configMAX_TASK_NAME_LEN                 (16)
-#define configUSE_16_BIT_TICKS                  0
-#define configUSE_MUTEXES                       1
-#define configUSE_RECURSIVE_MUTEXES             1
-#define configQUEUE_REGISTRY_SIZE               8
-#define configUSE_PORT_OPTIMISED_TASK_SELECTION 1
+#define configMAX_TASK_NAME_LEN     (16)
+#define configUSE_16_BIT_TICKS      0
+#define configUSE_MUTEXES           1
+#define configUSE_RECURSIVE_MUTEXES 1
+#define configQUEUE_REGISTRY_SIZE   8
+#if MCU_IS_STM32F4()
+    #define configUSE_PORT_OPTIMISED_TASK_SELECTION 1
+#else
+    #define configUSE_PORT_OPTIMISED_TASK_SELECTION 0
+#endif
 
-#define configUSE_TIMERS             1
-#define configTIMER_TASK_PRIORITY    3
+#define configUSE_TIMERS 1
+/* Apart from running timer the timer task also executes function triggered
+ * from ISR. Notably this includes event group events. This requires the
+ * priority to be high so that the events are delivered timely. Otherwise
+ * high priority tasks might end up waiting for their events until low priority
+ * tasks yield.*/
+#define configTIMER_TASK_PRIORITY    ((configMAX_PRIORITIES - 1) - 1)
 #define configTIMER_QUEUE_LENGTH     10
 #define configTIMER_TASK_STACK_DEPTH configMINIMAL_STACK_SIZE
 
@@ -156,6 +163,7 @@ to exclude the API function. */
 #define INCLUDE_vTaskSuspend                1
 #define INCLUDE_vTaskDelayUntil             0
 #define INCLUDE_vTaskDelay                  1
+#define INCLUDE_xTaskAbortDelay             1
 #define INCLUDE_xTaskGetSchedulerState      1
 #define INCLUDE_xTimerPendFunctionCall      1
 #define INCLUDE_uxTaskGetStackHighWaterMark 1

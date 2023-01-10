@@ -1,20 +1,19 @@
 // trinamic.cpp
 #include "trinamic.h"
 #include "config.h"
-#include "TMCStepper.h"
 #include "gpio.h"
 #include "hwio_pindef.h"
 #include "../Marlin/src/module/stepper.h"
+#include "TMCStepper.h"
 #include "bsod.h"
-
-#if ((MOTHERBOARD == 1823))
+#include "cmsis_os.h"
 
 using namespace buddy::hw;
 static TMC2209Stepper *pStep[4] = { nullptr, nullptr, nullptr, nullptr };
 
 static uint16_t tmc_sg[4];      // stallguard result for each axis
-static uint8_t tmc_sg_mask = 7; // stalguard result sampling mask (bit0-x, bit1-y, ...), xyz by default
-static uint8_t tmc_sg_axis = 0; // current axis for stalguard result sampling (0-x, 1-y, ...)
+static uint8_t tmc_sg_mask = 7; // stallguard result sampling mask (bit0-x, bit1-y, ...), xyz by default
+static uint8_t tmc_sg_axis = 0; // current axis for stallguard result sampling (0-x, 1-y, ...)
 
 static tmc_sg_sample_cb_t *tmc_sg_sample_cb = NULL; // sg sample callback
 
@@ -121,9 +120,3 @@ extern uint16_t tmc_get_last_sg_sample(uint8_t axis) {
 }
 
 } //extern "C"
-
-#else
-
-    #error "MOTHERBOARD not defined"
-
-#endif

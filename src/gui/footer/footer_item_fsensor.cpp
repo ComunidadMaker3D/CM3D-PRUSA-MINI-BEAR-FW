@@ -1,17 +1,16 @@
 /**
  * @file footer_item_fsensor.cpp
- * @author Radek Vana
- * @date 2021-12-12
  */
 
 #include "footer_item_fsensor.hpp"
 #include "filament_sensor_api.hpp"
-#include "resource.h"
+#include "png_resources.hpp"
+#include "i18n.h"
 #include <algorithm>
 #include <cmath>
 
 FooterItemFSensor::FooterItemFSensor(window_t *parent)
-    : AddSuperWindow<FooterIconText_IntVal>(parent, IDR_PNG_filament_sensor_17x16, static_makeView, static_readValue) {
+    : AddSuperWindow<FooterIconText_IntVal>(parent, &png::filament_sensor_17x16, static_makeView, static_readValue) {
 }
 
 int FooterItemFSensor::static_readValue() {
@@ -51,3 +50,5 @@ string_view_utf8 FooterItemFSensor::static_makeView(int value) {
 
     return string_view_utf8(_(txt));
 }
+
+string_view_utf8 FooterItemFSensor::GetName() { return _("F. Sensor"); }

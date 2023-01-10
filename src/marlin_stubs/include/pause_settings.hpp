@@ -4,6 +4,7 @@
  */
 
 #pragma once
+#include <optional>
 #include "../../../lib/Marlin/Marlin/src/core/macros.h"
 #include "../../../lib/Marlin/Marlin/src/core/types.h"
 
@@ -20,6 +21,7 @@ class Settings {
     float fast_load_length;
     float purge_length;
     float retract;
+    float park_z_feedrate;
 
     xyz_pos_t park_pos; // if axis is NAN, don't move it
     xyze_pos_t resume_pos;
@@ -39,12 +41,14 @@ public:
     static float GetDefaultUnloadLength();
     static float GetDefaultPurgeLength();
     static float GetDefaultRetractLength();
+    static float GetDefaultParkZFeedrate();
 
-    void SetUnloadLength(float len);
-    void SetSlowLoadLength(float len);
-    void SetFastLoadLength(float len);
-    void SetPurgeLength(float len);
-    void SetRetractLength(float len);
+    void SetUnloadLength(const std::optional<float> &len);
+    void SetSlowLoadLength(const std::optional<float> &len);
+    void SetFastLoadLength(const std::optional<float> &len);
+    void SetPurgeLength(const std::optional<float> &len);
+    void SetRetractLength(const std::optional<float> &len);
+    void SetParkZFeedrate(const std::optional<float> &len);
     void SetParkPoint(const xyz_pos_t &park_point);
     void SetResumePoint(const xyze_pos_t &resume_point);
     void SetMmuFilamentToLoad(uint8_t index);

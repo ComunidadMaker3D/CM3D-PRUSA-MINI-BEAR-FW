@@ -1,21 +1,23 @@
 // window_msgbox.cpp
 #include "window_msgbox.hpp"
-#include "resource.h"
 #include "sound.hpp"
 #include <algorithm>
 #include "ScreenHandler.hpp"
 #include "client_response_texts.hpp"
 #include "GuiDefaults.hpp"
+#include "png_resources.hpp"
 
 /*****************************************************************************/
 //MsgBoxBase
-MsgBoxBase::MsgBoxBase(Rect16 rect, const PhaseResponses &resp, size_t def_btn, const PhaseTexts *labels, string_view_utf8 txt, is_multiline multiline)
+MsgBoxBase::MsgBoxBase(Rect16 rect, const PhaseResponses &resp, size_t def_btn, const PhaseTexts *labels, string_view_utf8 txt,
+    is_multiline multiline, is_closed_on_click_t close)
     : AddSuperWindow<IDialog>(rect)
     , text(this, getTextRect(), multiline, is_closed_on_click_t::no, txt)
-    , buttons(this, GuiDefaults::GetButtonRect(rect), resp, labels)
+    , pButtons(new (&radio_mem_space) RadioButton(this, GuiDefaults::GetButtonRect(rect), resp, labels))
     , result(Response::_none) {
-    buttons.SetBtnIndex(def_btn);
-    //buttons.SetCapture(); //todo make this work
+    flags.close_on_click = close;
+    pButtons->SetBtnIndex(def_btn);
+    CaptureNormalWindow(*pButtons);
 }
 
 Rect16 MsgBoxBase::getTextRect() {
@@ -26,18 +28,17 @@ Response MsgBoxBase::GetResult() {
     return result;
 }
 
-//todo make radio button events behave like normal button
 void MsgBoxBase::windowEvent(EventLock /*has private ctor*/, window_t *sender, GUI_event_t event, void *param) {
+    event_conversion_union un;
+    un.pvoid = param;
+
     switch (event) {
-    case GUI_event_t::CLICK:
-        result = buttons.Click();
-        Screens::Access()->Close();
-        break;
-    case GUI_event_t::ENC_UP:
-        ++buttons;
-        break;
-    case GUI_event_t::ENC_DN:
-        --buttons;
+    case GUI_event_t::CHILD_CLICK:
+        result = un.response;
+        if (flags.close_on_click == is_closed_on_click_t::yes) {
+            Screens::Access()->Close();
+        } else if (GetParent())
+            GetParent()->WindowEvent(this, GUI_event_t::CHILD_CLICK, un.pvoid);
         break;
     default:
         SuperWindowEvent(sender, event, param);
@@ -47,8 +48,8 @@ void MsgBoxBase::windowEvent(EventLock /*has private ctor*/, window_t *sender, G
 /*****************************************************************************/
 //MsgBoxTitled
 MsgBoxTitled::MsgBoxTitled(Rect16 rect, const PhaseResponses &resp, size_t def_btn, const PhaseTexts *labels,
-    string_view_utf8 txt, is_multiline multiline, string_view_utf8 tit, uint16_t title_icon_id_res)
-    : AddSuperWindow<MsgBoxIconned>(rect, resp, def_btn, labels, txt, multiline, title_icon_id_res)
+    string_view_utf8 txt, is_multiline multiline, string_view_utf8 tit, const png::Resource *title_icon, is_closed_on_click_t close)
+    : AddSuperWindow<MsgBoxIconned>(rect, resp, def_btn, labels, txt, multiline, title_icon, close)
     , title(this, Rect16(), is_multiline::no, is_closed_on_click_t::no, tit) {
     // set title params for height extraction
     title.font = getTitleFont();
@@ -107,8 +108,8 @@ void MsgBoxTitled::unconditionalDraw() {
 /*****************************************************************************/
 //MsgBoxIconned
 MsgBoxIconned::MsgBoxIconned(Rect16 rect, const PhaseResponses &resp, size_t def_btn, const PhaseTexts *labels,
-    string_view_utf8 txt, is_multiline multiline, uint16_t icon_id_res)
-    : AddSuperWindow<MsgBoxBase>(rect, resp, def_btn, labels, txt, multiline)
+    string_view_utf8 txt, is_multiline multiline, const png::Resource *icon_id_res, is_closed_on_click_t close)
+    : AddSuperWindow<MsgBoxBase>(rect, resp, def_btn, labels, txt, multiline, close)
     , icon(this, icon_id_res, { int16_t(rect.Left()), int16_t(rect.Top()) }, GuiDefaults::Padding) {
     text.SetRect(getTextRect()); // reinit text, icon and title must be initialized
     icon -= Rect16::Width_t(GuiDefaults::Padding.left + GuiDefaults::Padding.right);
@@ -146,32 +147,32 @@ Response MsgBox(string_view_utf8 txt, const PhaseResponses &resp, size_t def_btn
 
 Response MsgBoxError(string_view_utf8 txt, const PhaseResponses &resp, size_t def_btn, Rect16 rect, is_multiline multiline) {
     constexpr static const char *label = N_("Error");
-    return MsgBox_Custom<MsgBoxTitled>(rect, resp, def_btn, txt, multiline, _(label), IDR_PNG_error_16px);
+    return MsgBox_Custom<MsgBoxTitled>(rect, resp, def_btn, txt, multiline, _(label), &png::error_16x16);
 }
 
 Response MsgBoxQuestion(string_view_utf8 txt, const PhaseResponses &resp, size_t def_btn, Rect16 rect, is_multiline multiline) {
     constexpr static const char *label = N_("Question");
-    return MsgBox_Custom<MsgBoxTitled>(rect, resp, def_btn, txt, multiline, _(label), IDR_PNG_question_16px);
+    return MsgBox_Custom<MsgBoxTitled>(rect, resp, def_btn, txt, multiline, _(label), &png::question_16x16);
 }
 
 Response MsgBoxWarning(string_view_utf8 txt, const PhaseResponses &resp, size_t def_btn, Rect16 rect, is_multiline multiline) {
     constexpr static const char *label = N_("Warning");
-    return MsgBox_Custom<MsgBoxTitled>(rect, resp, def_btn, txt, multiline, _(label), IDR_PNG_warning_16px);
+    return MsgBox_Custom<MsgBoxTitled>(rect, resp, def_btn, txt, multiline, _(label), &png::warning_16x16);
 }
 
-Response MsgBoxTitle(string_view_utf8 title, string_view_utf8 txt, const PhaseResponses &resp, size_t def_btn, Rect16 rect, uint16_t icon_id, is_multiline multiline) {
+Response MsgBoxTitle(string_view_utf8 title, string_view_utf8 txt, const PhaseResponses &resp, size_t def_btn, Rect16 rect, const png::Resource *icon_id, is_multiline multiline) {
     return MsgBox_Custom<MsgBoxTitled>(rect, resp, def_btn, txt, multiline, title, icon_id);
 }
 
 Response MsgBoxInfo(string_view_utf8 txt, const PhaseResponses &resp, size_t def_btn, Rect16 rect, is_multiline multiline) {
     constexpr static const char *label = N_("Information");
-    return MsgBox_Custom<MsgBoxTitled>(rect, resp, def_btn, txt, multiline, _(label), IDR_PNG_info_16px);
+    return MsgBox_Custom<MsgBoxTitled>(rect, resp, def_btn, txt, multiline, _(label), &png::info_16x16);
 }
 
-Response MsgBoxIcon(string_view_utf8 txt, uint16_t icon_id, const PhaseResponses &resp, size_t def_btn, Rect16 rect, is_multiline multiline) {
+Response MsgBoxIcon(string_view_utf8 txt, const png::Resource *icon_id, const PhaseResponses &resp, size_t def_btn, Rect16 rect, is_multiline multiline) {
     return MsgBox_Custom<MsgBoxIconned>(rect, resp, def_btn, txt, multiline, icon_id);
 }
 
 Response MsgBoxPepa(string_view_utf8 txt, const PhaseResponses &resp, size_t def_btn, Rect16 rect, is_multiline multiline) {
-    return MsgBoxIcon(txt, IDR_PNG_pepa_64px, resp, def_btn, rect, multiline);
+    return MsgBoxIcon(txt, &png::pepa_42x64, resp, def_btn, rect, multiline);
 }

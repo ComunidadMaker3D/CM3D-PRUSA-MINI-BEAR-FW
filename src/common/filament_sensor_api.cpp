@@ -97,18 +97,18 @@ void FilamentSensors::Cycle() {
 
     // gcode is injected outside critical section, so critical section is as short as possible
     // also injection of GCode inside critical section might not work
-    // TODO M600_sent and Autoload_sent should be mutally exclusive
+    // TODO M600_sent and Autoload_sent should be mutually exclusive
     // for now M600 just has higher prior thanks to "else if"
     if (*opt_event_m600) {
         m600_sent = true;
         PrintProcessor::InjectGcode("M600"); //change filament
-    } else if (*opt_event_autoload && !has_mmu) {
+    } else if (*opt_event_autoload && !has_mmu && !isAutoloadLocked()) {
         autoload_sent = true;
-        PrintProcessor::InjectGcode("M1701"); //autoload with return option
+        PrintProcessor::InjectGcode("M1701 Z40"); //autoload with return option and minimal Z value of 40mm
     }
 }
 
-// this methot is currently called outside FilamentSensors::Cycle critical section, so the critical section is shorter
+// this method is currently called outside FilamentSensors::Cycle critical section, so the critical section is shorter
 // trying to trigger runout at exact moment when print ended could break something
 // also if another M600 happens during clear of M600_sent flag, it could be discarded, this is not a problem, because it could happen only due a bug
 // if it happens move it inside FilamentSensors::Cycle critical section
@@ -122,7 +122,7 @@ bool FilamentSensors::evaluateM600(FSensor::event ev) const {
     return false;
 }
 
-// this methot is currently called outside FilamentSensors::Cycle critical section, so the critical section is shorter
+// this method is currently called outside FilamentSensors::Cycle critical section, so the critical section is shorter
 // trying to trigger autoload at exact moment when print starts could break something
 // also if another autoload happens during clear of Autoload_sent flag, it could be discarded, this is not a problem, because it could happen only due a bug
 // if it happens move it inside FilamentSensors::Cycle critical section
@@ -147,6 +147,19 @@ uint32_t FilamentSensors::DecEvLock() {
     return event_lock;
 }
 
+uint32_t FilamentSensors::DecAutoloadLock() {
+    CriticalSection C; // TODO use counting semaphore to avoid critical section
+    if (autoload_lock > 0) {
+        --autoload_lock;
+    } else {
+        bsod("Autoload event lock out of range");
+    }
+    return autoload_lock;
+}
+
+uint32_t FilamentSensors::IncAutoloadLock() {
+    return ++autoload_lock;
+}
 uint32_t FilamentSensors::IncEvLock() {
     return ++event_lock;
 }

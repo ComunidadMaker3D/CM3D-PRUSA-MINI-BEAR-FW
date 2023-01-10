@@ -3,11 +3,10 @@
 #include "gui.hpp"
 #include "window_header.hpp"
 #include "status_footer.hpp"
-#include "window_menu.hpp"
+#include "window_menu_adv.hpp"
 #include "WinMenuContainer.hpp"
 #include "WindowMenuItems.hpp"
 #include <stdint.h>
-#include "resource.h"
 #include "screen.hpp"
 #include <new>
 
@@ -50,15 +49,13 @@ public:
     template <class ITEM>
     void DisableItem() {
         if (Item<ITEM>().IsEnabled()) {
-            Item<ITEM>().Disable();
-            Invalidate(); // TODO is this needed?
+            Item<ITEM>().Disable(); // This method can fail (you can't disable focused item)
         }
     }
     template <class ITEM>
     void EnableItem() {
         if (!Item<ITEM>().IsEnabled()) {
             Item<ITEM>().Enable();
-            Invalidate(); // TODO is this needed?
         }
     }
 
@@ -78,5 +75,5 @@ public:
 template <EFooter FOOTER, class... T>
 ScreenMenu<FOOTER, T...>::ScreenMenu(string_view_utf8 label, window_t *parent)
     : AddSuperWindow<IScreenMenu>(parent, label, FOOTER) {
-    menu.SetContainer(container);
+    menu.BindContainer(container);
 }

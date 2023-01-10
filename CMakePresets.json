@@ -9,15 +9,23 @@
         {
             "name": "mini_debug_boot",
             "generator": "Ninja",
-            "binaryDir": "build-vscode",
+            "binaryDir": "build-vscode-buddy",
             "cacheVariables": {
                 "CMAKE_MAKE_PROGRAM": {
                     "type": "FILEPATH",
                     "value": "${sourceDir}/.dependencies/ninja-1.10.2/ninja"
                 },
+                "CMAKE_EXPORT_COMPILE_COMMANDS": {
+                    "type": "STRING",
+                    "value": "ON"
+                },
                 "PRINTER": {
                     "type": "STRING",
                     "value": "MINI"
+                },
+                "BOARD": {
+                    "type": "STRING",
+                    "value": "<default>"
                 },
                 "BOARD_VERSION": {
                     "type": "STRING",
@@ -26,6 +34,10 @@
                 "PRESET_COMPILE_OPTIONS": {
                     "type": "STRING",
                     "value": ""
+                },
+                "DEVELOPMENT_ITEMS_ENABLED": {
+                    "type": "BOOL",
+                    "value": "YES"
                 },
                 "BOOTLOADER": {
                     "type": "STRING",
@@ -64,15 +76,23 @@
         {
             "name": "mini_debug_noboot",
             "generator": "Ninja",
-            "binaryDir": "build-vscode",
+            "binaryDir": "build-vscode-buddy",
             "cacheVariables": {
                 "CMAKE_MAKE_PROGRAM": {
                     "type": "FILEPATH",
                     "value": "${sourceDir}/.dependencies/ninja-1.10.2/ninja"
                 },
+                "CMAKE_EXPORT_COMPILE_COMMANDS": {
+                    "type": "STRING",
+                    "value": "ON"
+                },
                 "PRINTER": {
                     "type": "STRING",
                     "value": "MINI"
+                },
+                "BOARD": {
+                    "type": "STRING",
+                    "value": "<default>"
                 },
                 "BOARD_VERSION": {
                     "type": "STRING",
@@ -81,6 +101,10 @@
                 "PRESET_COMPILE_OPTIONS": {
                     "type": "STRING",
                     "value": ""
+                },
+                "DEVELOPMENT_ITEMS_ENABLED": {
+                    "type": "BOOL",
+                    "value": "YES"
                 },
                 "BOOTLOADER": {
                     "type": "STRING",
@@ -119,15 +143,23 @@
         {
             "name": "mini_release_boot",
             "generator": "Ninja",
-            "binaryDir": "build-vscode",
+            "binaryDir": "build-vscode-buddy",
             "cacheVariables": {
                 "CMAKE_MAKE_PROGRAM": {
                     "type": "FILEPATH",
                     "value": "${sourceDir}/.dependencies/ninja-1.10.2/ninja"
                 },
+                "CMAKE_EXPORT_COMPILE_COMMANDS": {
+                    "type": "STRING",
+                    "value": "ON"
+                },
                 "PRINTER": {
                     "type": "STRING",
                     "value": "MINI"
+                },
+                "BOARD": {
+                    "type": "STRING",
+                    "value": "<default>"
                 },
                 "BOARD_VERSION": {
                     "type": "STRING",
@@ -136,6 +168,10 @@
                 "PRESET_COMPILE_OPTIONS": {
                     "type": "STRING",
                     "value": ""
+                },
+                "DEVELOPMENT_ITEMS_ENABLED": {
+                    "type": "BOOL",
+                    "value": "YES"
                 },
                 "BOOTLOADER": {
                     "type": "STRING",
@@ -174,15 +210,23 @@
         {
             "name": "mini_release_noboot",
             "generator": "Ninja",
-            "binaryDir": "build-vscode",
+            "binaryDir": "build-vscode-buddy",
             "cacheVariables": {
                 "CMAKE_MAKE_PROGRAM": {
                     "type": "FILEPATH",
                     "value": "${sourceDir}/.dependencies/ninja-1.10.2/ninja"
                 },
+                "CMAKE_EXPORT_COMPILE_COMMANDS": {
+                    "type": "STRING",
+                    "value": "ON"
+                },
                 "PRINTER": {
                     "type": "STRING",
                     "value": "MINI"
+                },
+                "BOARD": {
+                    "type": "STRING",
+                    "value": "<default>"
                 },
                 "BOARD_VERSION": {
                     "type": "STRING",
@@ -191,6 +235,10 @@
                 "PRESET_COMPILE_OPTIONS": {
                     "type": "STRING",
                     "value": ""
+                },
+                "DEVELOPMENT_ITEMS_ENABLED": {
+                    "type": "BOOL",
+                    "value": "YES"
                 },
                 "BOOTLOADER": {
                     "type": "STRING",

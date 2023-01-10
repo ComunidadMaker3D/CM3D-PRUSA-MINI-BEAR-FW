@@ -10,14 +10,14 @@
 #include "stm32f4xx_hal.h"
 #include "ScreenHandler.hpp"
 #include "sys.h"
-#include "../Middlewares/ST/Utilites/CPU/cpu_utils.h"
+#include "../hw/cpu_utils.hpp"
 #include "i18n.h"
 #include "marlin_client.h"
+#include <ctime>
 
 /******************************************************************************************************/
 //variables
 
-static int actual_CPU_load = -1;
 static int last_CPU_load = -1;
 
 /******************************************************************************************************/
@@ -58,7 +58,7 @@ screen_sysinfo_data_t::screen_sysinfo_data_t()
     textCPU_load_val.SetValue(osGetCPUUsage());
 
 #ifdef DEBUG_NTP
-    time_t sec = sntp_get_system_time();
+    time_t sec = time(nullptr);
     struct tm now;
     localtime_r(&sec, &now);
     static char buff[40];
@@ -89,7 +89,7 @@ screen_sysinfo_data_t::screen_sysinfo_data_t()
 
 void screen_sysinfo_data_t::windowEvent(EventLock /*has private ctor*/, window_t *sender, GUI_event_t event, void *param) {
     if (event == GUI_event_t::LOOP) {
-        actual_CPU_load = osGetCPUUsage();
+        const int actual_CPU_load = osGetCPUUsage();
         if (last_CPU_load != actual_CPU_load) {
             textCPU_load_val.SetValue(actual_CPU_load);
             last_CPU_load = actual_CPU_load;

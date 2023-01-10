@@ -7,6 +7,7 @@
 #include "DialogHandler.hpp"
 #include "window_dlg_load_unload.hpp"
 #include "marlin_client.h"
+#include "ScreenHandler.hpp"
 
 /*****************************************************************************/
 //MI_LOAD
@@ -15,7 +16,7 @@ MI_LOAD::MI_LOAD()
 
 void MI_LOAD::Do() {
     if ((Filaments::CurrentIndex() == filament_t::NONE) || (MsgBoxWarning(_(warning_loaded), Responses_YesNo, 1) == Response::Yes)) {
-        marlin_gcode("M701 W2"); // unload with return option
+        marlin_gcode("M701 W2"); // load with return option
     }
 }
 
@@ -35,8 +36,8 @@ MI_CHANGE::MI_CHANGE()
     : MI_event_dispatcher(_(label)) {}
 
 void MI_CHANGE::Do() {
-    marlin_gcode("M1600"); // non print filament change
-    Sound_Stop();          // TODO what is Sound_Stop(); doing here?
+    marlin_gcode("M1600 R"); // non print filament change
+    Sound_Stop();            // TODO what is Sound_Stop(); doing here?
 }
 
 /*****************************************************************************/
@@ -51,7 +52,7 @@ void MI_PURGE::Do() {
 /*****************************************************************************/
 //MI_COOLDOWN
 MI_COOLDOWN::MI_COOLDOWN()
-    : WI_LABEL_t(_(label), 0, is_enabled_t::yes, is_hidden_t::no) {}
+    : WI_LABEL_t(_(label), nullptr, is_enabled_t::yes, is_hidden_t::no) {}
 
 void MI_COOLDOWN::click(IWindowMenu & /*window_menu*/) {
     Screens::Access()->WindowEvent(GUI_event_t::CHILD_CLICK, (void *)this);

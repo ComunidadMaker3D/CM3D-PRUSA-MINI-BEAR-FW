@@ -81,10 +81,27 @@ enum class PhasesPreheat : uint16_t {
     _last = UserTempSelection
 };
 
+enum class PhasesPrintPreview : uint16_t {
+    _first = static_cast<uint16_t>(PhasesPreheat::_last) + 1,
+    main_dialog = _first,
+    wrong_printer,
+    filament_not_inserted,
+    mmu_filament_inserted,
+    wrong_filament,
+    _last = wrong_filament
+};
+
 // GUI phases of selftest/wizard
 enum class PhasesSelftest : uint16_t {
-    _first = static_cast<uint16_t>(PhasesPreheat::_last) + 1,
+    _first = static_cast<uint16_t>(PhasesPrintPreview::_last) + 1,
     _none = _first,
+
+    _first_WizardPrologue,
+    WizardPrologue_ask_run = _first_WizardPrologue,
+    WizardPrologue_ask_run_dev, // developer version has ignore button
+    WizardPrologue_info,
+    WizardPrologue_info_detailed,
+    _last_WizardPrologue = WizardPrologue_info_detailed,
 
     _first_ESP,
     ESP_instructions = _first_ESP,
@@ -112,34 +129,56 @@ enum class PhasesSelftest : uint16_t {
     ESP_qr_instructions,
     _last_ESP_qr = ESP_qr_instructions,
 
-    _last = _last_ESP_qr
+    _first_Fans,
+    Fans = _first_Fans,
+    _last_Fans = Fans,
+
+    _first_Axis,
+    Axis = _first_Axis,
+    _last_Axis = Axis,
+
+    _first_Heaters,
+    Heaters = _first_Heaters,
+    _last_Heaters = Heaters,
+
+    _first_FirstLayer,
+    FirstLayer_mbl = _first_FirstLayer,
+    FirstLayer_print,
+    _last_FirstLayer = FirstLayer_print,
+
+    _first_FirstLayerQuestions,
+    FirstLayer_filament_known_and_not_unsensed = _first_FirstLayerQuestions,
+    FirstLayer_filament_not_known_or_unsensed,
+    FirstLayer_calib,
+    FirstLayer_use_val,
+    FirstLayer_start_print,
+    FirstLayer_reprint,
+    FirstLayer_clean_sheet,
+    FirstLayer_failed,
+    _last_FirstLayerQuestions = FirstLayer_failed,
+
+    _first_Result,
+    Result = _first_Result,
+    _last_Result = Result,
+
+    _first_WizardEpilogue,
+    WizardEpilogue_ok = _first_WizardEpilogue, // ok is after result
+    WizardEpilogue_nok,                        // nok is before result
+    _last_WizardEpilogue = WizardEpilogue_nok,
+
+    _last = _last_WizardEpilogue
 };
 
-enum class PhasesG162 : uint16_t {
+enum class PhasesCrashRecovery : uint16_t {
     _first = static_cast<uint16_t>(PhasesSelftest::_last) + 1,
-    Parking,
-    _last = Parking
-};
-
-//not bound to responses
-enum class PhasesSelftestFans : uint16_t {
-    _first = static_cast<uint16_t>(PhasesLoadUnload::_last) + 1,
-    measure = _first, //in this case is safe to have measure == _first
-    _last = measure
-};
-
-//not bound to responses
-enum class PhasesSelftestAxis : uint16_t {
-    _first = static_cast<uint16_t>(PhasesSelftestFans::_last) + 1,
-    measure = _first, //in this case is safe to have measure == _first
-    _last = measure
-};
-
-//not bound to responses
-enum class PhasesSelftestHeat : uint16_t {
-    _first = static_cast<uint16_t>(PhasesSelftestAxis::_last) + 1,
-    measure = _first, //in this case is safe to have measure == _first
-    _last = measure
+    check_X = _first, //in this case is safe to have check_X == _first
+    check_Y,
+    home,
+    axis_NOK, //< just for unification of the two below
+    axis_short,
+    axis_long,
+    repeated_crash,
+    _last = repeated_crash
 };
 
 //static class for work with fsm responses (like button click)
@@ -149,18 +188,129 @@ class ClientResponses {
     ClientResponses(ClientResponses &) = delete;
 
     //declare 2d arrays of single buttons for radio buttons
-    static const PhaseResponses LoadUnloadResponses[CountPhases<PhasesLoadUnload>()];
-    static const PhaseResponses PreheatResponses[CountPhases<PhasesPreheat>()];
-    static const PhaseResponses SelftestResponses[CountPhases<PhasesSelftest>()];
-    static const PhaseResponses G162Responses[CountPhases<PhasesG162>()];
+    static constexpr PhaseResponses LoadUnloadResponses[] = {
+        {},                                                       //_first
+        { Response::Stop },                                       //Parking_stoppable
+        {},                                                       //Parking_unstoppable,
+        { Response::Stop },                                       //WaitingTemp_stoppable,
+        {},                                                       //WaitingTemp_unstoppable,
+        { Response::Stop },                                       //PreparingToRam_stoppable,
+        {},                                                       //PreparingToRam_unstoppable
+        { Response::Stop },                                       //Ramming_stoppable,
+        {},                                                       //Ramming_unstoppable,
+        { Response::Stop },                                       //Unloading_stoppable,
+        {},                                                       //Unloading_unstoppable,
+        { Response::Filament_removed },                           //RemoveFilament,
+        { Response::Yes, Response::No },                          //IsFilamentUnloaded,
+        {},                                                       //FilamentNotInFS
+        { Response::Continue },                                   //ManualUnload,
+        { Response::Continue, Response::Stop },                   //UserPush_stoppable,
+        { Response::Continue },                                   //UserPush_unstoppable,
+        { Response::Stop },                                       //MakeSureInserted_stoppable,
+        {},                                                       //MakeSureInserted_unstoppable,
+        { Response::Stop },                                       //Inserting_stoppable,
+        {},                                                       //Inserting_unstoppable,
+        { Response::Yes, Response::No },                          //IsFilamentInGear,
+        { Response::Stop },                                       //Ejecting_stoppable,
+        {},                                                       //Ejecting_unstoppable,
+        { Response::Stop },                                       //Loading_stoppable,
+        {},                                                       //Loading_unstoppable,
+        { Response::Stop },                                       //Purging_stoppable,
+        {},                                                       //Purging_unstoppable,
+        { Response::Yes, Response::Purge_more, Response::Retry }, //IsColor,
+        { Response::Yes, Response::Purge_more },                  //IsColorPurge
+        {},                                                       //Unparking
+    };
+    static_assert(std::size(ClientResponses::LoadUnloadResponses) == CountPhases<PhasesLoadUnload>());
+
+    static constexpr PhaseResponses PreheatResponses[] = {
+        {}, //_first
+        { Response::Abort, Response::Cooldown, Response::PLA, Response::PETG,
+            Response::ASA, Response::ABS, Response::PC, Response::FLEX, Response::HIPS, Response::PP, Response::PVB }, //UserTempSelection
+    };
+    static_assert(std::size(ClientResponses::PreheatResponses) == CountPhases<PhasesPreheat>());
+
+    static constexpr PhaseResponses PrintPreviewResponses[] = {
+        { Response::Print, Response::Back },                    // main_dialog,
+        { Response::Abort, Response::Ignore },                  // wrong_printer
+        { Response::Yes, Response::No, Response::FS_disable },  // filament_not_inserted
+        { Response::Yes, Response::No },                        // mmu_filament_inserted
+        { Response::Change, Response::Ignore, Response::Abort } // wrong_filament
+    };
+    static_assert(std::size(ClientResponses::PrintPreviewResponses) == CountPhases<PhasesPrintPreview>());
+
+    static constexpr PhaseResponses SelftestResponses[] = {
+        {}, // _none == _first
+
+        { Response::Continue, Response::Cancel },                   // WizardPrologue_ask_run
+        { Response::Continue, Response::Cancel, Response::Ignore }, // WizardPrologue_ask_run_dev
+        { Response::Continue, Response::Cancel },                   // WizardPrologue_info
+        { Response::Continue, Response::Cancel },                   // WizardPrologue_info_detailed
+
+        { Response::Continue, Response::Abort }, // ESP_instructions
+        { Response::Continue, Response::Skip },  // ESP_USB_not_inserted
+        { Response::Continue, Response::Skip },  // ESP_ask_gen
+        { Response::Yes, Response::Skip },       // ESP_ask_gen_overwrite
+        { Response::Continue, Response::Skip },  // ESP_makefile_failed
+        { Response::Continue },                  // ESP_eject_USB
+        { Response::Continue, Response::Abort }, // ESP_insert_USB
+        { Response::Retry, Response::Abort },    // ESP_invalid
+        { Response::Abort },                     // ESP_uploading_config
+        { Response::Continue },                  // ESP_enabling_WIFI
+        { Response::Continue },                  // ESP_uploaded
+
+        { Response::Continue, Response::Abort }, // ESP_progress_info
+        { Response::Abort },                     // ESP_progress_upload
+        { Response::Continue },                  // ESP_progress_passed
+        { Response::Continue },                  // ESP_progress_failed
+
+        { Response::Continue, Response::Abort }, // ESP_qr_instructions_flash
+        { Response::Continue, Response::Abort }, // ESP_qr_instructions
+
+        {}, // Fans
+
+        {}, // Axis
+
+        {}, // Heaters
+
+        {}, // FirstLayer_mbl
+        {}, // FirstLayer_print
+
+        { Response::Next, Response::Unload },                 // FirstLayer_filament_known_and_not_unsensed = _first_FirstLayerQuestions
+        { Response::Next, Response::Load, Response::Unload }, // FirstLayer_filament_not_known_or_unsensed
+        { Response::Next },                                   // FirstLayer_calib
+        { Response::Yes, Response::No },                      // FirstLayer_use_val
+        { Response::Next },                                   // FirstLayer_start_print
+        { Response::Yes, Response::No },                      // FirstLayer_reprint
+        { Response::Next },                                   // FirstLayer_clean_sheet
+        { Response::Next },                                   // FirstLayer_failed
+
+        { Response::Next }, // Result
+
+        { Response::Continue }, // WizardEpilogue_ok
+        { Response::Continue }, // WizardEpilogue_nok
+    };
+    static_assert(std::size(ClientResponses::SelftestResponses) == CountPhases<PhasesSelftest>());
+
+    static constexpr PhaseResponses CrashRecoveryResponses[] = {
+        {},                                                     //check X == _first
+        {},                                                     //check Y
+        {},                                                     //home
+        { Response::Retry, Response::Pause, Response::Resume }, //axis NOK
+        {},                                                     //axis short
+        {},                                                     //axis long
+        { Response::Resume, Response::Pause },                  //repeated crash
+    };
+    static_assert(std::size(ClientResponses::CrashRecoveryResponses) == CountPhases<PhasesCrashRecovery>());
 
     //methods to "bind" button array with enum type
     static const PhaseResponses &getResponsesInPhase(PhasesLoadUnload phase) { return LoadUnloadResponses[static_cast<size_t>(phase)]; }
     static const PhaseResponses &getResponsesInPhase(PhasesPreheat phase) { return PreheatResponses[static_cast<size_t>(phase) - static_cast<size_t>(PhasesPreheat::_first)]; }
+    static const PhaseResponses &getResponsesInPhase(PhasesPrintPreview phase) { return PrintPreviewResponses[static_cast<size_t>(phase) - static_cast<size_t>(PhasesPrintPreview::_first)]; }
     static const PhaseResponses &getResponsesInPhase(PhasesSelftest phase) { return SelftestResponses[static_cast<size_t>(phase) - static_cast<size_t>(PhasesSelftest::_first)]; }
-    static const PhaseResponses &getResponsesInPhase(PhasesG162 phase) { return G162Responses[static_cast<size_t>(phase) - static_cast<size_t>(PhasesG162::_first)]; }
+    static const PhaseResponses &getResponsesInPhase(PhasesCrashRecovery phase) { return CrashRecoveryResponses[static_cast<size_t>(phase) - static_cast<size_t>(PhasesCrashRecovery::_first)]; }
 
-protected:
+public:
     //get index of single response in PhaseResponses
     //return -1 (maxval) if does not exist
     template <class T>
@@ -182,7 +332,6 @@ protected:
         return cmds[index];
     }
 
-public:
     //get all responses accepted in phase
     template <class T>
     static const PhaseResponses &GetResponses(T phase) {
@@ -206,21 +355,45 @@ public:
 };
 
 enum class SelftestParts {
+    WizardPrologue,
     ESP,
     ESP_progress,
     ESP_qr,
+    Axis,
+    Fans,
+    Heaters,
+    FirstLayer,
+    FirstLayerQuestions,
+    Result,
+    WizardEpilogue,
     _none, //cannot be created, must have same index as _count
     _count = _none
 };
 
 static constexpr PhasesSelftest SelftestGetFirstPhaseFromPart(SelftestParts part) {
     switch (part) {
+    case SelftestParts::WizardPrologue:
+        return PhasesSelftest::_first_WizardPrologue;
     case SelftestParts::ESP:
         return PhasesSelftest::_first_ESP;
     case SelftestParts::ESP_progress:
         return PhasesSelftest::_first_ESP_progress;
     case SelftestParts::ESP_qr:
         return PhasesSelftest::_first_ESP_qr;
+    case SelftestParts::Axis:
+        return PhasesSelftest::_first_Axis;
+    case SelftestParts::Fans:
+        return PhasesSelftest::_first_Fans;
+    case SelftestParts::Heaters:
+        return PhasesSelftest::_first_Heaters;
+    case SelftestParts::FirstLayer:
+        return PhasesSelftest::_first_FirstLayer;
+    case SelftestParts::FirstLayerQuestions:
+        return PhasesSelftest::_first_FirstLayerQuestions;
+    case SelftestParts::Result:
+        return PhasesSelftest::_first_Result;
+    case SelftestParts::WizardEpilogue:
+        return PhasesSelftest::_first_WizardEpilogue;
     case SelftestParts::_none:
         break;
     }
@@ -229,12 +402,28 @@ static constexpr PhasesSelftest SelftestGetFirstPhaseFromPart(SelftestParts part
 
 static constexpr PhasesSelftest SelftestGetLastPhaseFromPart(SelftestParts part) {
     switch (part) {
+    case SelftestParts::WizardPrologue:
+        return PhasesSelftest::_last_WizardPrologue;
     case SelftestParts::ESP:
         return PhasesSelftest::_last_ESP;
     case SelftestParts::ESP_progress:
         return PhasesSelftest::_last_ESP_progress;
     case SelftestParts::ESP_qr:
         return PhasesSelftest::_last_ESP_qr;
+    case SelftestParts::Axis:
+        return PhasesSelftest::_last_Axis;
+    case SelftestParts::Fans:
+        return PhasesSelftest::_last_Fans;
+    case SelftestParts::Heaters:
+        return PhasesSelftest::_last_Heaters;
+    case SelftestParts::FirstLayer:
+        return PhasesSelftest::_last_FirstLayer;
+    case SelftestParts::FirstLayerQuestions:
+        return PhasesSelftest::_last_FirstLayerQuestions;
+    case SelftestParts::Result:
+        return PhasesSelftest::_last_Result;
+    case SelftestParts::WizardEpilogue:
+        return PhasesSelftest::_last_WizardEpilogue;
     case SelftestParts::_none:
         break;
     }
@@ -253,6 +442,9 @@ static constexpr SelftestParts SelftestGetPartFromPhase(PhasesSelftest ph) {
             return SelftestParts(i);
     }
 
+    if (SelftestPartContainsPhase(SelftestParts::WizardPrologue, ph))
+        return SelftestParts::WizardPrologue;
+
     if (SelftestPartContainsPhase(SelftestParts::ESP, ph))
         return SelftestParts::ESP;
     if (SelftestPartContainsPhase(SelftestParts::ESP_progress, ph))
@@ -260,5 +452,56 @@ static constexpr SelftestParts SelftestGetPartFromPhase(PhasesSelftest ph) {
     if (SelftestPartContainsPhase(SelftestParts::ESP_qr, ph))
         return SelftestParts::ESP_qr;
 
+    if (SelftestPartContainsPhase(SelftestParts::Fans, ph))
+        return SelftestParts::Fans;
+
+    if (SelftestPartContainsPhase(SelftestParts::Axis, ph))
+        return SelftestParts::Axis;
+
+    if (SelftestPartContainsPhase(SelftestParts::Heaters, ph))
+        return SelftestParts::Heaters;
+
+    if (SelftestPartContainsPhase(SelftestParts::WizardEpilogue, ph))
+        return SelftestParts::WizardEpilogue;
+
+    if (SelftestPartContainsPhase(SelftestParts::Result, ph))
+        return SelftestParts::Result;
+
     return SelftestParts::_none;
 };
+
+enum class FSM_action {
+    no_action,
+    create,
+    destroy,
+    change
+};
+
+#include <optional>
+
+/**
+ * @brief determine if correct state of fsm is se
+ * useful for FSM with no data
+ *
+ * @tparam T          - type of current / wanted state
+ * @param current     - current state
+ * @param should_be   - wanted state
+ * @return FSM_action - what action needs to be done
+ */
+template <class T>
+FSM_action IsFSM_action_needed(std::optional<T> current, std::optional<T> should_be) {
+    if (!current && !should_be)
+        return FSM_action::no_action;
+
+    if (!current && should_be)
+        return FSM_action::create;
+
+    if (current && !should_be)
+        return FSM_action::destroy;
+
+    // current && should_be
+    if (*current == *should_be)
+        return FSM_action::no_action;
+
+    return FSM_action::change;
+}

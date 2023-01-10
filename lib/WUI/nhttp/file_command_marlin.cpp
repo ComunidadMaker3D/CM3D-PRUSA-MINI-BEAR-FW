@@ -26,13 +26,13 @@ FileCommand::StartResult FileCommand::start() {
             // Eat the first usb.
             const size_t len = strlen(filename);
             // Include copying of the \0 too
-            memcpy(filename, filename + 4, len - 3);
+            memmove(filename, filename + 4, len - 3);
             // Try again with "fixed" filename.
             return start();
         }
         return StartResult::NotFound;
     }
-    if (wui_start_print(filename)) {
+    if (wui_start_print(filename, true) == StartPrintResult::PrintStarted) {
         return StartResult::Started;
     } else {
         return StartResult::NotReady;

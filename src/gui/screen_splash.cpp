@@ -1,56 +1,70 @@
 //screen_splash.cpp
 #include "screen_splash.hpp"
 #include "ScreenHandler.hpp"
-#include "screen_menus.hpp"
 
 #include "config.h"
 #include "version.h"
 #include "eeprom.h"
+#include "png_resources.hpp"
+#include "marlin_client.h"
 
 #include "i18n.h"
 #include "../lang/translator.hpp"
 #include "language_eeprom.hpp"
-#include "screen_wizard.hpp"
+#include "screen_menu_languages.hpp"
 #include "bsod.h"
+
+#include <option/bootloader.h>
 
 #ifdef _EXTUI
     #include "marlin_client.h"
 #endif
 
+#if HAS_SELFTEST
+    #include "printer_selftest.hpp"
+    #include "ScreenSelftest.hpp"
+#endif // HAS_SELFTEST
+
 screen_splash_data_t::screen_splash_data_t()
     : AddSuperWindow<screen_t>()
-    , logo_prusa_mini(this, Rect16(0, 84, 240, 62), IDR_PNG_prusa_printer_splash)
+    , logo_prusa_mini(this, Rect16(0, 84, 240, 62), &png::prusa_mini_splash_207x47)
     , text_progress(this, Rect16(10, 171, 220, 29), is_multiline::no)
     , progress(this, Rect16(10, 200, 220, 15), 15, COLOR_ORANGE, COLOR_GRAY)
     , text_version(this, Rect16(0, 295, 240, 22), is_multiline::no)
-    , icon_logo_buddy(this, Rect16(), 0)  //unused?
-    , icon_logo_marlin(this, Rect16(), 0) //unused?
-    , icon_debug(this, Rect16(80, 215, 80, 80), IDR_PNG_marlin_logo) {
+    , icon_logo_buddy(this, Rect16(), nullptr)  //unused?
+    , icon_logo_marlin(this, Rect16(), nullptr) //unused?
+    , icon_debug(this, Rect16(80, 215, png::marlin_logo_79x61.w, png::marlin_logo_79x61.h), &png::marlin_logo_79x61) {
     super::ClrMenuTimeoutClose();
 
-    if (ScreenWizard::IsConfigInvalid()) {
-        static const char en_text[] = "Wizard states invalid"; // intentionally not translated
-        bsod(en_text);
-    }
-
+#if defined(USE_ST7789)
     text_progress.font = resource_font(IDR_FNT_NORMAL);
     text_progress.SetAlignment(Align_t::Center());
+
     progress.SetFont(resource_font(IDR_FNT_BIG));
     text_version.SetAlignment(Align_t::Center());
+#endif // USE_ST7789
+
     snprintf(text_version_buffer, sizeof(text_version_buffer), "%s%s",
         project_version, project_version_suffix_short);
     // this MakeRAM is safe - text_version_buffer is globally allocated
     text_version.SetText(string_view_utf8::MakeRAM((const uint8_t *)text_version_buffer));
 
+#if HAS_SELFTEST
     const bool run_selftest = eeprom_get_bool(EEVAR_RUN_SELFTEST);
     const bool run_xyzcalib = eeprom_get_bool(EEVAR_RUN_XYZCALIB);
     const bool run_firstlay = eeprom_get_bool(EEVAR_RUN_FIRSTLAY);
     const bool run_wizard = (run_selftest && run_xyzcalib && run_firstlay);
+#endif
     const bool run_lang = !LangEEPROM::getInstance().IsValid();
 
     const screen_node screens[] {
-        { run_lang ? GetScreenMenuLanguagesNoRet : nullptr },          // lang
-        { run_wizard ? ScreenFactory::Screen<ScreenWizard> : nullptr } // wizard
+        { run_lang ? ScreenFactory::Screen<ScreenMenuLanguagesNoRet> : nullptr }, // lang
+
+#if HAS_SELFTEST
+        {
+            run_wizard ? screen_node(ScreenFactory::Screen<ScreenSelftest>, stmWizard) : screen_node()
+        } // wizard
+#endif
     };
     Screens::Access()->PushBeforeCurrent(screens, screens + (sizeof(screens) / sizeof(screens[0])));
 }
@@ -59,8 +73,10 @@ void screen_splash_data_t::draw() {
     super::draw();
 #ifdef _DEBUG
     static const char dbg[] = "DEBUG";
+    #if defined(USE_ST7789)
     display::DrawText(Rect16(180, 91, 60, 13), string_view_utf8::MakeCPUFLASH((const uint8_t *)dbg), resource_font(IDR_FNT_SMALL), COLOR_BLACK, COLOR_RED);
-#endif //_DEBUG
+    #endif // USE_ST7789
+#endif     //_DEBUG
 }
 
 /**
@@ -96,14 +112,22 @@ void screen_splash_data_t::windowEvent(EventLock /*has private ctor*/, window_t 
             text_progress.SetText(string_view_utf8::MakeRAM((uint8_t *)text_progress_buffer));
             text_progress.Invalidate();
         }
+
+    #if BOOTLOADER()
+        // when running under bootloader, we take over the progress bar at 50 %
+        percent = 50 + percent / 2;
+    #endif
+
+    #if defined(USE_ST7789)
         progress.SetValue(std::clamp(percent, 0, 99));
+    #endif // USE_ST7789
 
         if (percent > 99) {
             Screens::Access()->Close();
         }
-#else
-    if (gui::GetTick() > 3000) {
+#else  // _EXTUI
+    if (HAL_GetTick() > 3000) {
         Screens::Access()->Close();
-#endif
+#endif // _EXTUI
     }
 }

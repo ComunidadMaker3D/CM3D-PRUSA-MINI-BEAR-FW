@@ -2,8 +2,18 @@
 #pragma once
 
 #include <inttypes.h>
+#include <device/board.h>
 
-#define USE_ST7789 /// defines usage of ST7789 display (and corresponding knob)
+///////////////////////////
+// display type selector //
+///////////////////////////
+#if BOARD_IS_BUDDY
+    #define USE_ST7789
+    #define MENU_HAS_SCROLLBAR false
+    #define MENU_HAS_BUTTONS   false
+#else
+    #error "macro BOARD_TYPE is not defined"
+#endif
 
 //--------------------------------------
 //GUI configuration

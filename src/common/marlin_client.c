@@ -8,6 +8,7 @@
 #include "ffconf.h"
 #include "timing.h"
 #include "log.h"
+#include "marlin_vars.h"
 
 LOG_COMPONENT_DEF(MarlinClient, LOG_SEVERITY_INFO);
 
@@ -558,9 +559,9 @@ void marlin_test_abort(void) {
     _send_request_id_to_server_and_wait(MARLIN_MSG_TEST_ABORT);
 }
 
-void marlin_print_start(const char *filename) {
+void marlin_print_start(const char *filename, bool skip_preview) {
     char request[MARLIN_MAX_REQUEST];
-    const int len = snprintf(request, sizeof(request), "!%c%s", MARLIN_MSG_PRINT_START, filename);
+    const int len = snprintf(request, sizeof(request), "!%c%c%s", MARLIN_MSG_PRINT_START, skip_preview ? '1' : '0', filename);
     if (len < 0)
         bsod("Error formatting request.");
     if ((size_t)len >= sizeof(request))
@@ -568,8 +569,56 @@ void marlin_print_start(const char *filename) {
     _send_request_to_server_and_wait(request);
 }
 
+bool marlin_print_started() {
+    // The above can't really return true/false if the print started, for two reasons:
+    // * There doesn't seem to be a ready-made way to conveniently send a
+    //   yes/no from the server to the client.
+    // * Waiting for the answer could lead to a deadlock when called from the
+    //   GUI thread, because the marlin server prepares the grounds and waits for
+    //   GUI to ACK that everything is OK. But if GUI would be waiting for the
+    //   server to answer, it couldn't answer.
+    //
+    // Therefore, we provide a separate function other threads may call
+    // (connect and link) to find out if starting the print was processed or if
+    // it was rejected.
+    //
+    // We also kind of ignore the possibility of the whole print successfully
+    // happening before we can notice it. That would produce a false negative,
+    // however that would likely result only in unexpected error message to the
+    // user.
+
+    while (true) {
+        switch (marlin_update_vars(MARLIN_VAR_MSK(MARLIN_VAR_PRNSTATE))->print_state) {
+        case mpsWaitGui:
+            // We are still waiting for GUI to make up its mind. Do another round.
+            osDelay(10);
+            break;
+        case mpsIdle:
+        case mpsAborted:
+        case mpsFinished:
+            // Went to idle - refused by GUI
+            return false;
+        default:
+            // Doing something else ‒ there's a lot of states where we are printing.
+            return true;
+        }
+    }
+}
+
+void marlin_gui_ready_to_print() {
+    _send_request_id_to_server_and_wait(MARLIN_MSG_GUI_PRINT_READY);
+}
+
+void marlin_gui_cant_print() {
+    _send_request_id_to_server_and_wait(MARLIN_MSG_GUI_CANT_PRINT);
+}
+
 void marlin_print_abort(void) {
     _send_request_id_to_server_and_wait(MARLIN_MSG_PRINT_ABORT);
+}
+
+void marlin_print_exit(void) {
+    _send_request_id_to_server_and_wait(MARLIN_MSG_PRINT_EXIT);
 }
 
 void marlin_print_pause(void) {
@@ -606,6 +655,32 @@ void marlin_encoded_response(uint32_t enc_phase_and_response) {
     char request[MARLIN_MAX_REQUEST];
     snprintf(request, MARLIN_MAX_REQUEST, "!%c%d", MARLIN_MSG_FSM, (int)enc_phase_and_response);
     _send_request_to_server_and_wait(request);
+}
+bool marlin_is_printing() {
+    switch (marlin_update_vars(MARLIN_VAR_MSK(MARLIN_VAR_PRNSTATE))->print_state) {
+    case mpsAborted:
+    case mpsIdle:
+    case mpsFinished:
+    case mpsPrintPreviewInit:
+    case mpsPrintPreviewImage:
+        return false;
+    default:
+        return true;
+    }
+}
+bool marlin_remote_print_ready(bool preview_only) {
+    switch (marlin_update_vars(MARLIN_VAR_MSK(MARLIN_VAR_PRNSTATE))->print_state) {
+    case mpsIdle:
+        return true;
+    case mpsPrintPreviewInit:
+    case mpsPrintPreviewImage:
+        // We want to replace the one-click print / preview when we want to
+        // start printing. But we don't want to change one print preview to
+        // another just by uploading stuff.
+        return !preview_only;
+    default:
+        return false;
+    }
 }
 
 //-----------------------------------------------------------------------------

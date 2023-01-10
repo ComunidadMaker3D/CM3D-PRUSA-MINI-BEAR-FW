@@ -1,6 +1,7 @@
 // marlin_server.h
 #pragma once
 
+#include "../../lib/Marlin/Marlin/src/inc/MarlinConfig.h"
 #include "marlin_events.h"
 #include "marlin_vars.h"
 #include "marlin_errors.h"
@@ -77,7 +78,7 @@ extern void marlin_server_manage_heater(void);
 extern void marlin_server_quick_stop(void);
 
 // direct print file with SFM format
-void marlin_server_print_start(const char *filename);
+void marlin_server_print_start(const char *filename, bool skip_preview);
 
 //
 extern uint32_t marlin_server_get_command(void);
@@ -95,9 +96,6 @@ extern void marlin_server_test_abort(void);
 extern void marlin_server_print_abort(void);
 
 //
-extern void marlin_server_print_pause(void);
-
-//
 extern void marlin_server_print_resume(void);
 
 //
@@ -109,11 +107,39 @@ extern bool marlin_server_print_reheat_ready();
 // return true if the printer is not moving (idle, paused, aborted or finished)
 extern bool marlin_server_printer_idle();
 
-//
-extern void marlin_server_park_head(void);
+typedef struct
+{
+    xyze_pos_t pos;    // resume position for unpark_head
+    float nozzle_temp; // resume nozzle temperature
+    uint8_t fan_speed; // resume fan speed
+} resume_state_t;
 
 //
-extern void marlin_server_unpark_head(void);
+extern void marlin_server_print_pause(void);
+
+// return true if the printer is in the paused and not moving state
+extern bool marlin_server_printer_paused();
+
+// return the resume state during a paused print
+extern resume_state_t *marlin_server_get_resume_data();
+
+// set the resume state for unpausing a print
+extern void marlin_server_set_resume_data(const resume_state_t *data);
+
+/// Plans retract and returns E stepper position in mm
+void marlin_server_retract();
+
+/// Lifts printing head
+void marlin_server_lift_head();
+
+/// Parks head at print pause or crash
+/// If Z lift or retraction wasn't performed
+/// you can rerun them.
+extern void marlin_server_park_head();
+
+//
+extern void marlin_server_unpark_head_XY(void);
+extern void marlin_server_unpark_head_ZE(void);
 
 //
 extern int marlin_all_axes_homed(void);
@@ -142,6 +168,11 @@ extern void marlin_server_resuming_begin(void);
 extern uint32_t marlin_server_get_user_click_count(void);
 
 extern uint32_t marlin_server_get_user_move_count(void);
+
+extern void marlin_server_nozzle_timeout_on();
+extern void marlin_server_nozzle_timeout_off();
+
+extern void marlin_server_forced_client_refresh();
 
 #ifdef __cplusplus
 }

@@ -1,7 +1,9 @@
 #pragma once
 
-#include "types.h"
-#include "segmented_json.h"
+#include "step.h"
+
+#include <segmented_json.h>
+#include <http/types.h>
 
 #include <string_view>
 
@@ -14,7 +16,7 @@ namespace nhttp::handler {
 /// things where there's no state to track during the generation.
 class StatelessJson {
 public:
-    typedef JsonResult (*Content)(size_t resume_point, JsonOutput &output);
+    typedef json::JsonResult (*Content)(size_t resume_point, json::JsonOutput &output);
 
 private:
     enum class Progress {
@@ -26,7 +28,7 @@ private:
 
     class Empty {};
 
-    class Renderer final : public JsonRenderer<Empty> {
+    class Renderer final : public json::JsonRenderer<Empty> {
     private:
         Content generator;
 
@@ -34,17 +36,17 @@ private:
         Renderer(Content content)
             : JsonRenderer(Empty {})
             , generator(content) {}
-        virtual JsonResult renderState(size_t resume_point, JsonOutput &output, Empty &state) const override;
+        virtual json::JsonResult renderState(size_t resume_point, json::JsonOutput &output, Empty &state) const override;
     };
 
     Renderer renderer;
     Progress progress = Progress::SendHeaders;
-    ConnectionHandling connection_handling;
+    http::ConnectionHandling connection_handling;
 
 public:
     StatelessJson(Content content, bool can_keep_alive)
         : renderer(content)
-        , connection_handling(can_keep_alive ? ConnectionHandling::ChunkedKeep : ConnectionHandling::Close) {}
+        , connection_handling(can_keep_alive ? http::ConnectionHandling::ChunkedKeep : http::ConnectionHandling::Close) {}
 
     bool want_read() const { return false; }
     bool want_write() const { return progress != Progress::Done; }

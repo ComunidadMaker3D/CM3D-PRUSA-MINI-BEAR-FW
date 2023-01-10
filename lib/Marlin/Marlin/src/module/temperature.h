@@ -542,7 +542,10 @@ class Temperature {
     /**
      * Call periodically to manage heaters
      */
-    static void manage_heater() _O2; // Added _O2 to work around a compiler error
+    static void manage_heater() __O2; // __O2 added to work around a compiler error
+
+    // Return true if the temperatures have been sampled at least once
+    static bool temperatures_ready();
 
     /**
      * Preheating hotends
@@ -658,7 +661,7 @@ class Temperature {
         #endif
         temp_bed.target =
           #ifdef BED_MAXTEMP
-            _MIN(celsius, BED_MAXTEMP - 10)
+            _MIN(celsius, BED_MAXTEMP - BED_MAXTEMP_SAFETY_MARGIN)
           #else
             celsius
           #endif

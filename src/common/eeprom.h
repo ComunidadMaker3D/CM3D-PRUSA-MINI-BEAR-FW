@@ -5,11 +5,12 @@
 #include <stdbool.h>
 #include "variant8.h"
 #include "eeprom_function_api.h"
+#include "selftest_eeprom.hpp"
 #include <stddef.h>
 
 enum {
     EEPROM_ADDRESS = 0x0500, // uint16_t
-    EEPROM_VERSION = 11,     // uint16_t
+    EEPROM_VERSION = 12,     // uint16_t
 };
 
 #define EEPROM_LAST_VERSION_WITH_OLD_CRC 10
@@ -18,8 +19,10 @@ enum {
 #define EEPROM_FEATURE_PID_BED 0x0002
 #define EEPROM_FEATURE_LAN     0x0004
 #define EEPROM_FEATURE_SHEETS  0x0008
-#define EEPROM_FEATURES        (EEPROM_FEATURE_PID_NOZ | EEPROM_FEATURE_PID_BED | EEPROM_FEATURE_LAN | EEPROM_FEATURE_SHEETS)
+#define EEPROM_FEATURE_CONNECT 0x0010
+#define EEPROM_FEATURES        (EEPROM_FEATURE_PID_NOZ | EEPROM_FEATURE_PID_BED | EEPROM_FEATURE_LAN | EEPROM_FEATURE_SHEETS | EEPROM_FEATURE_CONNECT)
 #define DEFAULT_HOST_NAME      "PrusaMINI"
+
 enum {
     MAX_SHEET_NAME_LENGTH = 8,
 };
@@ -118,12 +121,12 @@ enum eevar_id {
     EEVAR_ODOMETER_TIME = 0x3f,       // uin32_t total print duration
     EEVAR_ACTIVE_NETDEV = 0x40,       // active network device
     EEVAR_PL_RUN = 0x41,              // active network device
-    EEVAR_PL_API_KEY = 0x42,          // active network device
+    EEVAR_PL_PASSWORD = 0x42,         // active network device
 
 // wifi variables (comes under the same feature flag as eth LAN)
 // FIXME: EEPROM_FEATURE_LAN probably can't be turned off, the .cpp file won't work then.
 #if (EEPROM_FEATURES & EEPROM_FEATURE_LAN)
-    EEVAR_WIFI_FLAG = 0x43,      // lan_flag & 1 -> On = 0/off = 1, lan_flag & 2 -> dhcp = 0/static = 1, lan_flag & 0b1100 -> ap_sec_t security
+    EEVAR_WIFI_FLAG = 0x43,      // lan_flag & 1 -> On = 0/off = 1, lan_flag & 2 -> dhcp = 0/static = 1, lan_flag & 0b1100 -> reserved, previously ap_sec_t security
     EEVAR_WIFI_IP4_ADDR = 0x44,  // X.X.X.X address encoded in uint32
     EEVAR_WIFI_IP4_MSK = 0x45,   // X.X.X.X address encoded in uint32
     EEVAR_WIFI_IP4_GW = 0x46,    // X.X.X.X address encoded in uint32
@@ -136,43 +139,38 @@ enum eevar_id {
 
     EEVAR_USB_MSC_ENABLED = 0x4c, // bool, on/off
 
-    EEVAR_CRC32 = 0x4d, // uint32_t crc32 for
+#if (EEPROM_FEATURES & EEPROM_FEATURE_CONNECT)
+    EEVAR_CONNECT_HOST = 0x4d,
+    EEVAR_CONNECT_TOKEN = 0x4e,
+    EEVAR_CONNECT_PORT = 0x4f,
+    EEVAR_CONNECT_TLS = 0x50,
+    EEVAR_CONNECT_ENABLED = 0x51,
+#endif
+
+    EEVAR_JOB_ID = 0x52,            // uint16_t print job id incremented at every print start
+    EEVAR_CRASH_ENABLED = 0x53,     // bool crash detection enabled
+    EEVAR_CRASH_SENS_X = 0x54,      // X axis crash sensitivity
+    EEVAR_CRASH_SENS_Y = 0x55,      // Y axis crash sensitivity
+    EEVAR_CRASH_PERIOD_X = 0x56,    // X axis crash period (speed) threshold
+    EEVAR_CRASH_PERIOD_Y = 0x57,    // Y axis crash period (speed) threshold
+    EEVAR_CRASH_FILTER = 0x58,      // bool Stallguard filtration (on/off)
+    EEVAR_CRASH_COUNT_X_TOT = 0x59, // number of crashes of X axis in total
+    EEVAR_CRASH_COUNT_Y_TOT = 0x5a, // number of crashes of Y axis in total
+    EEVAR_POWER_COUNT_TOT = 0x5b,   // number of power losses in total
+    EEVAR_CRC32 = 0x5c,             // uint32_t crc32 for
 };
 
 enum {
     LAN_HOSTNAME_MAX_LEN = 20,
+    CONNECT_HOST_SIZE = 20,
     CONNECT_TOKEN_SIZE = 20,
-    PL_API_KEY_SIZE = 16,
+    PL_PASSWORD_SIZE = 16,
     LAN_EEFLG_ONOFF = 1,     //EEPROM flag for user-defined settings (SW turn OFF/ON of the LAN)
     LAN_EEFLG_TYPE = 2,      //EEPROM flag for user-defined settings (Switch between dhcp and static)
-    WIFI_EEFLG_SEC = 0b1100, // Wifi security (ap_sec_t).
+    WIFI_EEFLG_SEC = 0b1100, // reserved, previously Wifi security (ap_sec_t).
     WIFI_MAX_SSID_LEN = 32,
     WIFI_MAX_PASSWD_LEN = 64,
 };
-
-#define SelftestResult_Unknown 0
-#define SelftestResult_Skipped 1
-#define SelftestResult_Passed  2
-#define SelftestResult_Failed  3
-
-typedef union _SelftestResultEEprom_t {
-    struct {
-        uint8_t printFan : 2;     // bit 0-1
-        uint8_t heatBreakFan : 2; // bit 2-3
-        uint8_t xaxis : 2;        // bit 4-5
-        uint8_t yaxis : 2;        // bit 6-7
-        uint8_t zaxis : 2;        // bit 8-9
-        uint8_t nozzle : 2;       // bit 10-11
-        uint8_t bed : 2;          // bit 12-13
-        uint8_t reserved0 : 2;    // bit 14-15
-        uint16_t reserved1;       // bit 16-31
-    };
-    uint32_t ui32;
-} SelftestResultEEprom_t;
-//if I use uint32_t reserved : 18 for bits 14 - 31, size on 64bit system is 8, I don't know why
-#ifdef __cplusplus
-static_assert(sizeof(SelftestResultEEprom_t) == sizeof(uint32_t), "Incorrect SelftestResultEEprom_t size");
-#endif //__cplusplus
 
 typedef enum {
     EEPROM_INIT_Undefined = -1,

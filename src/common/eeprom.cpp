@@ -24,7 +24,7 @@ using namespace eeprom::current;
 LOG_COMPONENT_DEF(EEPROM, LOG_SEVERITY_INFO);
 
 static const constexpr uint8_t EEPROM_MAX_NAME = 16;       // maximum name length (with '\0')
-static const constexpr uint16_t EEPROM_MAX_DATASIZE = 512; // maximum datasize
+static const constexpr uint16_t EEPROM_MAX_DATASIZE = 576; // maximum datasize
 
 // flags will be used also for selective variable reset default values in some cases (shipping etc.))
 static const constexpr uint16_t EEVAR_FLG_READONLY = 0x0001; // variable is read only
@@ -71,6 +71,7 @@ union eeprom_data {
             eeprom::v7::vars_body_t v7;
             eeprom::v9::vars_body_t v9;
             eeprom::v10::vars_body_t v10;
+            eeprom::v11::vars_body_t v11;
             eeprom::current::vars_body_t current;
         };
     };
@@ -152,7 +153,7 @@ static const eeprom_entry_t eeprom_map[] = {
     { "ODOMETER_TIME",   VARIANT8_UI32,  1, 0 }, // EEVAR_LAN_ODOMETER_TIME
     { "ACTIVE_NETDEV",   VARIANT8_UI8,   1, 0 },
     { "PL_RUN",          VARIANT8_UI8,   1, 0 },    // EEVAR_PL_RUN
-    { "PL_API_KEY",      VARIANT8_PCHAR, PL_API_KEY_SIZE, 0 }, // EEVAR_PL_API_KEY
+    { "PL_PASSWORD",      VARIANT8_PCHAR, PL_PASSWORD_SIZE, 0 }, // EEVAR_PL_PASSWORD
     { "WIFI_FLAG",       VARIANT8_UI8,   1, 0 }, // EEVAR_WIFI_FLAG
     { "WIFI_IP4_ADDR",   VARIANT8_UI32,  1, 0 }, // EEVAR_WIFI_IP4_ADDR
     { "WIFI_IP4_MSK",    VARIANT8_UI32,  1, 0 }, // EEVAR_WIFI_IP4_MSK
@@ -162,7 +163,23 @@ static const eeprom_entry_t eeprom_map[] = {
     { "WIFI_HOSTNAME",   VARIANT8_PCHAR, LAN_HOSTNAME_MAX_LEN + 1, 0 }, // EEVAR_WIFI_HOSTNAME
     { "WIFI_AP_SSID",    VARIANT8_PCHAR, WIFI_MAX_SSID_LEN + 1, 0 }, // EEVAR_WIFI_HOSTNAME
     { "WIFI_AP_PASSWD",  VARIANT8_PCHAR, WIFI_MAX_PASSWD_LEN + 1, 0 }, // EEVAR_WIFI_HOSTNAME
-    { "USB_MSC_ENABLED", VARIANT8_BOOL,  1, 0}, // EEVAR_USB_MSC_ENABLED
+    { "USB_MSC_ENABLED", VARIANT8_BOOL,  1, 0 }, // EEVAR_USB_MSC_ENABLED
+    { "CONNECT_HOST",    VARIANT8_PCHAR, CONNECT_HOST_SIZE + 1, 0 }, // EEVAR_CONNECT_HOST
+    { "CONNECT_TOKEN",   VARIANT8_PCHAR, CONNECT_TOKEN_SIZE + 1, 0 }, // EEVAR_CONNECT_TOKEN
+    { "CONNECT_PORT",    VARIANT8_UI16,  1, 0 }, // EEVAR_CONNECT_PORT
+    { "CONNECT_TLS",     VARIANT8_BOOL,  1, 0 }, // EEVAR_CONNECT_TLS
+    { "CONNECT_ENABLED", VARIANT8_BOOL,  1, 0 }, // EEVAR_CONNECT_ENABLED
+    { "JOB_ID",          VARIANT8_UI16,  1, 0 }, // EEVAR_JOB_ID
+    { "CRASH_ENABLED",   VARIANT8_BOOL,  1, 0 }, // EEVAR_CRASH_ENABLED
+    { "CRASH_SENS_X",    VARIANT8_I16,    1, 0 }, // EEVAR_CRASH_SENS_X,
+    { "CRASH_SENS_Y",    VARIANT8_I16,    1, 0 }, // EEVAR_CRASH_SENS_Y,
+    { "CRASH_PERIOD_X",  VARIANT8_UI16,  1, 0 }, // EEVAR_CRASH_PERIOD_X,
+    { "CRASH_PERIOD_Y",  VARIANT8_UI16,  1, 0 }, // EEVAR_CRASH_PERIOD_Y,
+    { "CRASH_FILTER",    VARIANT8_BOOL,  1, 0 }, // EEVAR_CRASH_FILTER,
+    { "CRASH_X",         VARIANT8_UI16,  1, 0 }, // EEVAR_CRASH_COUNT_X_TOT
+    { "CRASH_Y",         VARIANT8_UI16,  1, 0 }, // EEVAR_CRASH_COUNT_Y_TOT
+    { "POWER_PANIC",     VARIANT8_UI16,  1, 0 }, // EEVAR_POWER_COUNT_TOT
+// crc
     { "CRC32",           VARIANT8_UI32,  1, 0 }, // EEVAR_CRC32
 };
 
@@ -598,8 +615,13 @@ static bool eeprom_convert_from(eeprom_data &data) {
     }
 
     if (version == 10) {
-        data.current = eeprom::current::convert(data.v10);
+        data.v11 = eeprom::v11::convert(data.v10);
         version = 11;
+    }
+
+    if (version == 11) {
+        data.current = eeprom::current::convert(data.v11);
+        version = 12;
     }
 
     // after body was updated we can update head
